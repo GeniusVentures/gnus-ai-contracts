@@ -30,13 +30,12 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
         _mintBatch(destinations, amounts);
     }
 
-    event TransferBatch(
+    event ERC20BatchTransfer(
         address indexed operator,
         address indexed from,
         address[] indexed destinations,
         uint256[] values
     );
-
 
     /**
      * @dev . check to not exceed supply, or burn more than supply
@@ -109,7 +108,7 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
             ERC1155Storage.layout()._balances[GNUS_TOKEN_ID][to] += amounts[i];
         }
 
-        emit TransferBatch(operator, address(0), destinations, amounts);
+        emit ERC20BatchTransfer(operator, address(0), destinations, amounts);
 
         _afterTokenTransfer(operator, address(0), destinations, amounts);
     }
@@ -146,7 +145,7 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
             }
         }
 
-        emit TransferBatch(operator, operator, destinations, amounts);
+        emit ERC20BatchTransfer(operator, operator, destinations, amounts);
 
         _afterTokenTransfer(operator, operator, destinations, amounts);
     }

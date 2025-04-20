@@ -20,11 +20,7 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
     string public constant symbol = "GNUS";
     uint8 public constant decimals = 18;
     uint256 private constant FEE_DOMINATOR = 1000;
-
-    function GNUSBridge_Initialize250() public onlySuperAdminRole {
-        _grantRole(MINTER_ROLE, _msgSender());
-        LibDiamond.diamondStorage().supportedInterfaces[type(IERC20Upgradeable).interfaceId] = true;
-    }
+  
     
     /**
      * @dev Emitted when token holder wants to bridge to another chain
