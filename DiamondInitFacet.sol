@@ -8,6 +8,8 @@ import "@gnus.ai/contracts-upgradeable-diamond/proxy/utils/Initializable.sol";
 import "contracts-starter/contracts/libraries/LibDiamond.sol";
 import "@gnus.ai/contracts-upgradeable-diamond/token/ERC20/IERC20Upgradeable.sol";
 
+import "hardhat/console.sol";
+
 contract DiamondInitFacet is ContextUpgradeable, AccessControlEnumerableUpgradeable {
     using LibDiamond for LibDiamond.DiamondStorage;
 
@@ -22,16 +24,19 @@ contract DiamondInitFacet is ContextUpgradeable, AccessControlEnumerableUpgradea
     }
 
     /// @notice Main protocol-wide initializer run in `diamondCut`
-  function diamondInitialize() public onlySuperAdminRole {
+  function diamondInitialize250() public //onlySuperAdminRole
+   {
+        console.log("DiamondInitFacet: diamondInitialize250 called");
+        address sender = _msgSender();
+        emit InitLog(sender, "diamondInitialize Function called");
+
         // Set up roles and permissions
         _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
         _setupRole(MINTER_ROLE, _msgSender());
         _setupRole(UPGRADER_ROLE, _msgSender());
         // Set up the initial state of the contract
         
-        address sender = _msgSender();
 
-        emit InitLog(sender, "diamondInitialize Function called");
 
         _grantRole(DEFAULT_ADMIN_ROLE, sender);
         _grantRole(MINTER_ROLE, sender);
