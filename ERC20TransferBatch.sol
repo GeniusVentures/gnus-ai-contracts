@@ -20,16 +20,18 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
     /// @notice Checks if the contract supports a given interface.
     /// @param interfaceId The interface identifier, as specified in ERC-165.
     /// @return True if the contract supports the specified interface.
-    function supportsInterface(bytes4 interfaceId) 
-        public 
-        view 
-        virtual 
-        override(ERC1155Upgradeable, AccessControlEnumerableUpgradeable) 
-        returns (bool) 
+    function supportsInterface(
+        bytes4 interfaceId
+    )
+        public
+        view
+        virtual
+        override(ERC1155Upgradeable, AccessControlEnumerableUpgradeable)
+        returns (bool)
     {
-        return (ERC1155Upgradeable.supportsInterface(interfaceId) || 
-                AccessControlEnumerableUpgradeable.supportsInterface(interfaceId) || 
-                (LibDiamond.diamondStorage().supportedInterfaces[interfaceId] == true));
+        return (ERC1155Upgradeable.supportsInterface(interfaceId) ||
+            AccessControlEnumerableUpgradeable.supportsInterface(interfaceId) ||
+            (LibDiamond.diamondStorage().supportedInterfaces[interfaceId] == true));
     }
 
     /// @notice Mints a batch of tokens to multiple destinations.
@@ -38,7 +40,10 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
     /// @param amounts The corresponding amounts of tokens to mint for each destination.
     function mintBatch(address[] memory destinations, uint256[] memory amounts) external payable {
         address operator = _msgSender();
-        require(hasRole(DEFAULT_ADMIN_ROLE, operator), "Creator or Admin can only mint GNUS Tokens");
+        require(
+            hasRole(DEFAULT_ADMIN_ROLE, operator),
+            "Creator or Admin can only mint GNUS Tokens"
+        );
         _mintBatch(destinations, amounts);
     }
 
@@ -55,12 +60,10 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
     );
 
     /// @dev Ensures supply constraints and prevents burns exceeding total supply.
-    /// @param operator The address initiating the transfer.
     /// @param from The address sending the tokens (or zero for minting).
     /// @param destinations The addresses receiving the tokens.
     /// @param amounts The amounts of tokens being transferred or burned.
     function _beforeTokenTransfer(
-        address operator,
         address from,
         address[] memory destinations,
         uint256[] memory amounts
@@ -73,8 +76,10 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
             for (uint256 i = 0; i < amounts.length; ++i) {
                 newSupply += amounts[i];
             }
-            require(newSupply <= GNUSNFTFactoryStorage.layout().NFTs[GNUS_TOKEN_ID].maxSupply,
-                "Max Supply for GNUS Token would be exceeded");
+            require(
+                newSupply <= GNUSNFTFactoryStorage.layout().NFTs[GNUS_TOKEN_ID].maxSupply,
+                "Max Supply for GNUS Token would be exceeded"
+            );
             ERC1155SupplyStorage.layout()._totalSupply[GNUS_TOKEN_ID] = newSupply;
         } else {
             // Burning tokens
@@ -104,14 +109,14 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
     /// @dev Internal function to mint a batch of tokens.
     /// @param destinations The addresses to receive the tokens.
     /// @param amounts The amounts of tokens to mint for each address.
-    function _mintBatch(
-        address[] memory destinations,
-        uint256[] memory amounts
-    ) internal virtual {
+    function _mintBatch(address[] memory destinations, uint256[] memory amounts) internal virtual {
         address operator = _msgSender();
-        require(destinations.length == amounts.length, "TransferBatch: to and amounts length mismatch");
+        require(
+            destinations.length == amounts.length,
+            "TransferBatch: to and amounts length mismatch"
+        );
 
-        _beforeTokenTransfer(operator, address(0), destinations, amounts);
+        _beforeTokenTransfer(address(0), destinations, amounts);
 
         for (uint256 i = 0; i < destinations.length; i++) {
             address to = destinations[i];
@@ -134,9 +139,12 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
         bool checkBurn
     ) internal virtual {
         address operator = _msgSender();
-        require(destinations.length == amounts.length, "TransferBatch: to and amounts length mismatch");
+        require(
+            destinations.length == amounts.length,
+            "TransferBatch: to and amounts length mismatch"
+        );
 
-        _beforeTokenTransfer(operator, operator, destinations, amounts);
+        _beforeTokenTransfer(operator, destinations, amounts);
 
         for (uint256 i = 0; i < destinations.length; i++) {
             address to = destinations[i];
@@ -145,9 +153,14 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
             }
 
             uint256 fromBalance = ERC1155Storage.layout()._balances[GNUS_TOKEN_ID][operator];
-            require(fromBalance >= amounts[i], "TransferBatch: from account does not have sufficient tokens");
+            require(
+                fromBalance >= amounts[i],
+                "TransferBatch: from account does not have sufficient tokens"
+            );
             unchecked {
-                ERC1155Storage.layout()._balances[GNUS_TOKEN_ID][operator] = fromBalance - amounts[i];
+                ERC1155Storage.layout()._balances[GNUS_TOKEN_ID][operator] =
+                    fromBalance -
+                    amounts[i];
                 ERC1155Storage.layout()._balances[GNUS_TOKEN_ID][to] += amounts[i];
             }
         }
@@ -160,10 +173,7 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
     /// @notice Transfers a batch of tokens from the caller to multiple destinations.
     /// @param destinations The addresses to receive the tokens.
     /// @param amounts The amounts of tokens to transfer for each address.
-    function transferBatch(
-        address[] memory destinations,
-        uint256[] memory amounts
-    ) public payable {
+    function transferBatch(address[] memory destinations, uint256[] memory amounts) public payable {
         _transferBatch(destinations, amounts, true);
     }
 
