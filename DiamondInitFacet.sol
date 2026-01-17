@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.2;
 
-import 'hardhat/console.sol';
+import "hardhat/console.sol";
 import "@gnus.ai/contracts-upgradeable-diamond/utils/ContextUpgradeable.sol";
 import "@gnus.ai/contracts-upgradeable-diamond/access/AccessControlEnumerableUpgradeable.sol";
 import "@gnus.ai/contracts-upgradeable-diamond/proxy/utils/Initializable.sol";
 import "contracts-starter/contracts/libraries/LibDiamond.sol";
 import "@gnus.ai/contracts-upgradeable-diamond/token/ERC20/IERC20Upgradeable.sol";
+import "./GNUSWithdrawLimiterStorage.sol";
 
 /// @title Diamond Initialization Facet
 /// @author Genius DAO
@@ -30,8 +31,11 @@ contract DiamondInitFacet is ContextUpgradeable, AccessControlEnumerableUpgradea
 
     /// @notice Restricts function access to the contract owner
     /// @dev Uses LibDiamond storage to verify ownership
-    modifier onlySuperAdminRole {
-        require(LibDiamond.diamondStorage().contractOwner == _msgSender(), "Only SuperAdmin allowed");
+    modifier onlySuperAdminRole() {
+        require(
+            LibDiamond.diamondStorage().contractOwner == _msgSender(),
+            "Only SuperAdmin allowed"
+        );
         _;
     }
 
@@ -51,8 +55,21 @@ contract DiamondInitFacet is ContextUpgradeable, AccessControlEnumerableUpgradea
         _grantRole(DEFAULT_ADMIN_ROLE, sender);
         _grantRole(MINTER_ROLE, sender);
         _grantRole(UPGRADER_ROLE, sender);
-        
+
         // Enable ERC20 interface support
         LibDiamond.diamondStorage().supportedInterfaces[type(IERC20Upgradeable).interfaceId] = true;
+
+        // Initialize withdrawal limiter with defaults
+        initializeGNUSWithdrawLimiter();
+    }
+
+    /// @notice Initializes the GNUS withdrawal limiter with default values
+    /// @dev Sets default configuration for the rate limiter system
+    function initializeGNUSWithdrawLimiter() internal {
+        GNUSWithdrawLimiterStorage.Layout storage l = GNUSWithdrawLimiterStorage.layout();
+        l.defaultLimitAmount = 100_000 * 10 ** 18; // 100,000 GNUS tokens
+        l.defaultWindowSeconds = 86400; // 1 day (24 hours)
+        l.defaultBinCount = 24; // hourly bins
+        l.limiterEnabled = true;
     }
 }
