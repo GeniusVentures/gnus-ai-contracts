@@ -26,16 +26,6 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
     uint256 private constant FEE_DOMINATOR = 1000;
 
     /**
-     * @notice Initializes the GNUSBridge contract.
-     * @dev Grants the `MINTER_ROLE` to the deploying address and registers ERC20 support in the Diamond Storage.
-     * Only callable by the Super Admin.
-     */
-    function GNUSBridge_Initialize() public initializer onlySuperAdminRole {
-        _grantRole(MINTER_ROLE, _msgSender());
-        LibDiamond.diamondStorage().supportedInterfaces[type(IERC20Upgradeable).interfaceId] = true;
-    }
-
-    /**
      * @notice Emitted when tokens are burned for bridging to another chain.
      * @param sender Address initiating the bridge operation.
      * @param id Token ID being burned.
@@ -44,14 +34,26 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
      * @param destChainID Destination chain ID.
      * @dev Emitted when token holder wants to bridge to another chain
      */
-    event BridgeSourceBurned(address indexed sender, uint256 id, uint256 amount, uint256 srcChainID, uint256 destChainID);
+    event BridgeSourceBurned(
+        address indexed sender,
+        uint256 id,
+        uint256 amount,
+        uint256 srcChainID,
+        uint256 destChainID
+    );
 
     /**
      * @inheritdoc IERC165Upgradeable
      */
     function supportsInterface(
         bytes4 interfaceId
-    ) public view virtual override(ERC1155Upgradeable, AccessControlEnumerableUpgradeable) returns (bool) {
+    )
+        public
+        view
+        virtual
+        override(ERC1155Upgradeable, AccessControlEnumerableUpgradeable)
+        returns (bool)
+    {
         return (ERC1155Upgradeable.supportsInterface(interfaceId) ||
             AccessControlEnumerableUpgradeable.supportsInterface(interfaceId) ||
             (LibDiamond.diamondStorage().supportedInterfaces[interfaceId] == true));
@@ -113,7 +115,7 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
      * @param id The ID of the token type to mint.
      * @param amount The amount of tokens to mint.
      * @param data Additional data with no specified format.
-     * 
+     *
      * Requirements:
      * - `to` cannot be the zero address.
      * - If `to` refers to a smart contract, it must implement {IERC1155Receiver-onERC1155Received} and return the acceptance magic value.
@@ -164,7 +166,13 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
         require(GNUSNFTFactoryStorage.layout().NFTs[id].nftCreated, "Token not created.");
         require(balanceOf(sender, id) >= amount, "Insufficient tokens.");
         _burn(sender, id, amount);
-        emit BridgeSourceBurned(sender, id, amount, GNUSControlStorage.layout().chainID, destChainID);
+        emit BridgeSourceBurned(
+            sender,
+            id,
+            amount,
+            GNUSControlStorage.layout().chainID,
+            destChainID
+        );
     }
 
     /**
@@ -213,7 +221,7 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
     ) public view virtual override returns (uint256) {
         return ERC20Storage.layout()._allowances[owner][spender];
     }
-    
+
     /**
      * @dev Sets `amount` as the allowance of `spender` over the caller's tokens.
      *
@@ -233,7 +241,7 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
         _approve(owner, spender, amount);
         return true;
     }
-    
+
     /**
      * @dev Atomically increases the allowance granted to `spender` by the caller.
      *
@@ -255,14 +263,14 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
     /**
      * @notice Approves the specified `amount` of tokens for the `spender` to spend on behalf of the caller.
      * @dev Sets `amount` as the allowance of `spender` over the caller's tokens.
-     * 
+     *
      * Emits an {Approval} event indicating the updated allowance.
-     * 
+     *
      * @param spender The address which will spend the funds.
      * @param subtractedValue The amount of tokens to decrease the allowance by.
      * @return A boolean value indicating whether the operation succeeded.
-     * 
-     * @dev IMPORTANT: Changing an allowance with this method brings the risk of someone using both the old and the new allowance due to transaction ordering. 
+     *
+     * @dev IMPORTANT: Changing an allowance with this method brings the risk of someone using both the old and the new allowance due to transaction ordering.
      * One possible solution to mitigate this race condition is to first reduce the spender's allowance to 0 and set the desired value afterwards:
      * see https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
      */
