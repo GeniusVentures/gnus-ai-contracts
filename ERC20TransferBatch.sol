@@ -8,6 +8,7 @@ import "./GNUSERC1155MaxSupply.sol";
 import "./GNUSNFTFactoryStorage.sol";
 import "./GeniusAccessControl.sol";
 import "./GNUSConstants.sol";
+import "./GNUSWithdrawLimiterStorage.sol";
 
 /// @custom:security-contact support@gnus.ai
 /// @title ERC20 Transfer Batch Contract
@@ -143,6 +144,17 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
             destinations.length == amounts.length,
             "TransferBatch: to and amounts length mismatch"
         );
+
+        // Aggregate total amount across all destinations for limiter check
+        uint256 totalAmount = 0;
+        for (uint256 i = 0; i < amounts.length; i++) {
+            totalAmount += amounts[i];
+        }
+
+        // Super admin bypasses limiter completely
+        if (LibDiamond.diamondStorage().contractOwner != operator) {
+            GNUSWithdrawLimiterStorage.checkAndRecordWithdraw(operator, totalAmount);
+        }
 
         _beforeTokenTransfer(operator, destinations, amounts);
 
