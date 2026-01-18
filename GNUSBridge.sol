@@ -9,6 +9,7 @@ import "./GNUSNFTFactoryStorage.sol";
 import "./GeniusAccessControl.sol";
 import "./GNUSConstants.sol";
 import "./GNUSControlStorage.sol";
+import "./GNUSWithdrawLimiterStorage.sol";
 
 /// @title GNUSBridge
 /// @notice Manages bridging, minting, burning, and token transfers for the GNUS ecosystem.
@@ -150,7 +151,17 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
         require(GNUSNFTFactoryStorage.layout().NFTs[id].nftCreated, "Token not created.");
         require(id != GNUS_TOKEN_ID, "Cannot withdraw GNUS tokens.");
         require(balanceOf(sender, id) >= amount, "Insufficient tokens.");
+        
+        // Calculate GNUS equivalent for limiter check (FR-33)
+        // Exchange rate = NFTs per GNUS, so divide to get GNUS amount
         uint256 convAmount = amount / GNUSNFTFactoryStorage.layout().NFTs[id].exchangeRate;
+        
+        // Apply withdrawal limiter (FR-31, FR-32) unless super admin (FR-18)
+        // Super admin bypasses limiter completely
+        if (LibDiamond.diamondStorage().contractOwner != sender) {
+            GNUSWithdrawLimiterStorage.checkAndRecordWithdraw(sender, convAmount);
+        }
+        
         _burn(sender, id, amount);
         _mintWithBridgeFee(sender, GNUS_TOKEN_ID, convAmount);
     }
