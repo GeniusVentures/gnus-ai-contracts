@@ -6,6 +6,9 @@ import "@gnus.ai/contracts-upgradeable-diamond/security/PausableUpgradeable.sol"
 import "@gnus.ai/contracts-upgradeable-diamond/token/ERC1155/extensions/ERC1155BurnableUpgradeable.sol";
 import "./GNUSNFTFactoryStorage.sol";
 import "./GNUSControlStorage.sol";
+import "./GNUSWithdrawLimiterStorage.sol";
+import "./GNUSConstants.sol";
+import {LibDiamond} from "contracts-starter/contracts/libraries/LibDiamond.sol";
 
 /// @title GNUSERC1155MaxSupply
 /// @notice This contract extends ERC1155 functionality with supply management, pausing, and burning capabilities.
@@ -36,6 +39,28 @@ contract GNUSERC1155MaxSupply is
         bytes memory data
     ) internal override(ERC1155Upgradeable, ERC1155SupplyUpgradeable) whenNotPaused {
         super._beforeTokenTransfer(operator, from, to, ids, amounts, data);
+
+        // Apply withdrawal limiter for GNUS token transfers (FR-42, FR-44, FR-46)
+        // Only check non-minting transfers (from != address(0))
+        if (from != address(0)) {
+            // Aggregate GNUS token amounts (FR-46)
+            uint256 totalGNUSAmount = 0;
+            for (uint256 i = 0; i < ids.length; ++i) {
+                if (ids[i] == GNUS_TOKEN_ID) {
+                    totalGNUSAmount += amounts[i];
+                }
+            }
+
+            // If transferring GNUS tokens, check limiter (unless super admin)
+            if (totalGNUSAmount > 0) {
+                // Super admin bypasses limiter (FR-40)
+                if (LibDiamond.diamondStorage().contractOwner != operator) {
+                    GNUSWithdrawLimiterStorage.checkAndRecordWithdraw(operator, totalGNUSAmount);
+                }
+            }
+        }
+
+        // Check banned transferors and max supply (existing logic)
         for (uint256 i = 0; i < ids.length; ++i) {
             uint256 id = ids[i];
             require(!GNUSControlStorage.isBannedTransferor(id, operator), "Blocked transferor");
