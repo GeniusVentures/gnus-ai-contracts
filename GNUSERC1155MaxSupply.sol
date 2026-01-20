@@ -40,10 +40,10 @@ contract GNUSERC1155MaxSupply is
     ) internal override(ERC1155Upgradeable, ERC1155SupplyUpgradeable) whenNotPaused {
         super._beforeTokenTransfer(operator, from, to, ids, amounts, data);
 
-        // Apply withdrawal limiter for GNUS token transfers (FR-42, FR-44, FR-46)
+        // Apply withdrawal limiter for GNUS token transfers
         // Only check non-minting transfers (from != address(0))
         if (from != address(0)) {
-            // Aggregate GNUS token amounts (FR-46)
+            // Aggregate GNUS token amounts
             uint256 totalGNUSAmount = 0;
             for (uint256 i = 0; i < ids.length; ++i) {
                 if (ids[i] == GNUS_TOKEN_ID) {
@@ -53,7 +53,7 @@ contract GNUSERC1155MaxSupply is
 
             // If transferring GNUS tokens, check limiter (unless super admin)
             if (totalGNUSAmount > 0) {
-                // Super admin bypasses limiter (FR-40)
+                // Super admin bypasses limiter
                 if (LibDiamond.diamondStorage().contractOwner != operator) {
                     GNUSWithdrawLimiterStorage.checkAndRecordWithdraw(operator, totalGNUSAmount);
                 }

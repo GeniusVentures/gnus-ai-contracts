@@ -152,11 +152,9 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
         require(id != GNUS_TOKEN_ID, "Cannot withdraw GNUS tokens.");
         require(balanceOf(sender, id) >= amount, "Insufficient tokens.");
 
-        // Calculate GNUS equivalent for limiter check (FR-33)
         // Exchange rate = NFTs per GNUS, so divide to get GNUS amount
         uint256 convAmount = amount / GNUSNFTFactoryStorage.layout().NFTs[id].exchangeRate;
 
-        // Apply withdrawal limiter (FR-31, FR-32) unless super admin (FR-18)
         // Super admin bypasses limiter completely
         if (LibDiamond.diamondStorage().contractOwner != sender) {
             GNUSWithdrawLimiterStorage.checkAndRecordWithdraw(sender, convAmount);

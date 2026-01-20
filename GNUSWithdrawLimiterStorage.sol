@@ -9,14 +9,14 @@ import "./GeniusAccessControl.sol";
 /// @custom:security-contact support@gnus.ai
 
 /// @notice Struct representing a time bin for withdrawal aggregation
-/// @dev Stores bin timestamp and accumulated withdrawal amount (FR-2)
+/// @dev Stores bin timestamp and accumulated withdrawal amount
 struct WithdrawBin {
     uint128 timestamp; ///< Timestamp when this bin was last updated
     uint128 totalAmount; ///< Total GNUS amount accumulated in this bin
 }
 
 /// @notice Struct representing per-account configuration
-/// @dev Zero values indicate use of default configuration (FR-10)
+/// @dev Zero values indicate use of default configuration
 struct AccountConfig {
     uint32 binCount; ///< Number of bins for this account (0 = use default)
     uint64 windowSeconds; ///< Window duration in seconds (0 = use default)
@@ -24,7 +24,7 @@ struct AccountConfig {
 }
 
 /// @notice Struct representing per-account state
-/// @dev Contains base timestamp and dynamic bin array (FR-4, FR-26)
+/// @dev Contains base timestamp and dynamic bin array
 struct AccountState {
     uint128 baseTimestamp; ///< First withdrawal timestamp (establishes bin timeline)
     WithdrawBin[] bins; ///< Array of withdrawal bins (size = binCount)
@@ -33,7 +33,7 @@ struct AccountState {
 /// @custom:security-contact support@gnus.ai
 library GNUSWithdrawLimiterStorage {
     /// @notice Struct representing the storage layout for the Withdraw Limiter
-    /// @dev Uses diamond storage pattern to avoid collisions (FR-35)
+    /// @dev Uses diamond storage pattern to avoid collisions
     struct Layout {
         mapping(address => AccountState) accountStates; ///< Per-account bin state
         mapping(address => AccountConfig) accountConfigs; ///< Per-account custom configs
@@ -43,7 +43,7 @@ library GNUSWithdrawLimiterStorage {
         bool limiterEnabled; ///< Global enable/disable flag
     }
 
-    /// @notice Storage position for the Withdraw Limiter storage (FR-35)
+    /// @notice Storage position for the Withdraw Limiter storage
     bytes32 constant GNUS_WITHDRAW_LIMITER_STORAGE_POSITION =
         keccak256("gnus.ai.withdraw.limiter.storage");
 
@@ -72,7 +72,7 @@ library GNUSWithdrawLimiterStorage {
     );
 
     /// @notice Retrieves the storage layout for the Withdraw Limiter
-    /// @dev Uses inline assembly to access the storage slot (FR-35)
+    /// @dev Uses inline assembly to access the storage slot
     /// @return l The storage layout
     function layout() internal pure returns (Layout storage l) {
         bytes32 slot = GNUS_WITHDRAW_LIMITER_STORAGE_POSITION;
@@ -82,7 +82,7 @@ library GNUSWithdrawLimiterStorage {
     }
 
     /// @notice Gets effective configuration for an account (custom or defaults)
-    /// @dev Zero values in account config trigger use of defaults (FR-12)
+    /// @dev Zero values in account config trigger use of defaults
     /// @param account The account address
     /// @return config The effective AccountConfig
     function getAccountConfigOrDefaults(
@@ -100,7 +100,7 @@ library GNUSWithdrawLimiterStorage {
     }
 
     /// @notice Calculates the current bin index for an account
-    /// @dev Uses formula: ((currentTime - baseTimestamp) / binLengthSeconds) % binCount (FR-55)
+    /// @dev Uses formula: ((currentTime - baseTimestamp) / binLengthSeconds) % binCount
     /// @param account The account address
     /// @param currentTime The current timestamp
     /// @param config The account's configuration
@@ -118,18 +118,18 @@ library GNUSWithdrawLimiterStorage {
             return 0;
         }
 
-        // Calculate bin length: windowSeconds / binCount (FR-15)
+        // Calculate bin length: windowSeconds / binCount
         uint256 binLengthSeconds = config.windowSeconds / config.binCount;
 
         // Calculate elapsed time since base
         uint256 elapsedSeconds = currentTime - state.baseTimestamp;
 
-        // Calculate bin index with modulo wrap-around (FR-55)
+        // Calculate bin index with modulo wrap-around
         binIndex = (elapsedSeconds / binLengthSeconds) % config.binCount;
     }
 
     /// @notice Zeros expired bins for an account (lazy cleanup)
-    /// @dev Bins are expired if bin.timestamp < (currentTime - windowSeconds) (FR-27, FR-28, FR-57)
+    /// @dev Bins are expired if bin.timestamp < (currentTime - windowSeconds)
     /// @param account The account address
     /// @param currentTime The current timestamp
     /// @param config The account's configuration
@@ -153,7 +153,7 @@ library GNUSWithdrawLimiterStorage {
     }
 
     /// @notice Sums all active bins within the window
-    /// @dev Active bins have timestamp >= (currentTime - windowSeconds) (FR-7)
+    /// @dev Active bins have timestamp >= (currentTime - windowSeconds)
     /// @param account The account address
     /// @param currentTime The current timestamp
     /// @param config The account's configuration
@@ -177,7 +177,7 @@ library GNUSWithdrawLimiterStorage {
     }
 
     /// @notice Core validation and recording logic for withdrawals
-    /// @dev Implements full limiter logic: check enabled, validate limit, update bins (FR-1 to FR-9)
+    /// @dev Implements full limiter logic: check enabled, validate limit, update bins
     /// @param account The account making the withdrawal
     /// @param amount The amount of GNUS tokens to withdraw
     function checkAndRecordWithdraw(address account, uint256 amount) internal {
@@ -192,7 +192,7 @@ library GNUSWithdrawLimiterStorage {
         AccountState storage state = l.accountStates[account];
         uint256 currentTime = block.timestamp;
 
-        // Initialize base timestamp on first withdrawal (FR-4, FR-56)
+        // Initialize base timestamp on first withdrawal
         if (state.baseTimestamp == 0) {
             state.baseTimestamp = uint128(currentTime);
             // Initialize bins array with binCount elements
@@ -201,19 +201,19 @@ library GNUSWithdrawLimiterStorage {
             }
         }
 
-        // Zero expired bins (lazy cleanup) (FR-27, FR-28)
+        // Zero expired bins (lazy cleanup)
         zeroExpiredBins(account, currentTime, config);
 
-        // Sum active bins (FR-7)
+        // Sum active bins
         uint256 activeTotal = sumActiveBins(account, currentTime, config);
 
-        // Check if withdrawal would exceed limit (FR-9)
+        // Check if withdrawal would exceed limit
         if (activeTotal + amount > config.limitAmount) {
             emit WithdrawLimiterTriggered(account, amount, activeTotal, config.limitAmount);
             revert("Withdrawal limit exceeded for time window");
         }
 
-        // Calculate current bin and add withdrawal amount (FR-5, FR-6)
+        // Calculate current bin and add withdrawal amount
         uint256 binIndex = calculateCurrentBin(account, currentTime, config);
         state.bins[binIndex].timestamp = uint128(currentTime);
         state.bins[binIndex].totalAmount += uint128(amount);
