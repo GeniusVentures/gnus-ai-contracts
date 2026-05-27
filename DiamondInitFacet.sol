@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.2;
+pragma solidity ^0.8.19;
 
-import "hardhat/console.sol";
 import "@gnus.ai/contracts-upgradeable-diamond/utils/ContextUpgradeable.sol";
 import "@gnus.ai/contracts-upgradeable-diamond/access/AccessControlEnumerableUpgradeable.sol";
 import "@gnus.ai/contracts-upgradeable-diamond/proxy/utils/Initializable.sol";
@@ -43,7 +42,6 @@ contract DiamondInitFacet is ContextUpgradeable, AccessControlEnumerableUpgradea
     /// @dev Sets up initial roles and permissions for the contract
     /// @custom:security Verify roles are properly set up
     function diamondInitialize250() public {
-        console.log("DiamondInitFacet: diamondInitialize250 called");
         address sender = _msgSender();
         emit InitLog(sender, "diamondInitialize Function called");
 

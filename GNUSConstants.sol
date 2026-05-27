@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.2;
+pragma solidity ^0.8.19;
 
 /// @title GNUS Constants
 /// @notice This file defines global constants used throughout the GNUS project.

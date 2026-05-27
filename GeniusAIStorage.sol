@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.2;
+pragma solidity ^0.8.19;
 
 /// @title Genius AI Storage Library
 /// @notice Provides the layout and utility functions for managing AI processing jobs and escrow data.
