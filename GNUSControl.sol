@@ -82,6 +82,7 @@ contract GNUSControl is GeniusAccessControl {
         uint256[] calldata tokenIds,
         address[] calldata bannedAddresses
     ) external onlySuperAdminRole {
+        require(tokenIds.length == bannedAddresses.length, "Array length mismatch");
         for (uint256 i; i < tokenIds.length; ) {
             GNUSControlStorage.layout().bannedTransferors[tokenIds[i]][bannedAddresses[i]] = true;
             unchecked {
@@ -100,6 +101,7 @@ contract GNUSControl is GeniusAccessControl {
         uint256[] calldata tokenIds,
         address[] calldata bannedAddresses
     ) external onlySuperAdminRole {
+        require(tokenIds.length == bannedAddresses.length, "Array length mismatch");
         for (uint256 i; i < tokenIds.length; ) {
             GNUSControlStorage.layout().bannedTransferors[tokenIds[i]][bannedAddresses[i]] = false;
             unchecked {

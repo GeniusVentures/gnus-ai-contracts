@@ -40,6 +40,7 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
     /// @param destinations The addresses to receive the minted tokens.
     /// @param amounts The corresponding amounts of tokens to mint for each destination.
     function mintBatch(address[] memory destinations, uint256[] memory amounts) external payable {
+        require(msg.value == 0, "ETH not accepted");
         address operator = _msgSender();
         require(
             hasRole(DEFAULT_ADMIN_ROLE, operator),
