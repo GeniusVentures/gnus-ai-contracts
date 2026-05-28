@@ -152,8 +152,12 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
         require(id != GNUS_TOKEN_ID, "Cannot withdraw GNUS tokens.");
         require(balanceOf(sender, id) >= amount, "Insufficient tokens.");
 
+        uint256 exchangeRate = GNUSNFTFactoryStorage.layout().NFTs[id].exchangeRate;
+        require(exchangeRate > 0, "Exchange rate must be greater than zero");
+        require(amount >= exchangeRate, "Amount must be at least the exchange rate");
+
         // Exchange rate = NFTs per GNUS, so divide to get GNUS amount
-        uint256 convAmount = amount / GNUSNFTFactoryStorage.layout().NFTs[id].exchangeRate;
+        uint256 convAmount = amount / exchangeRate;
 
         // Super admin bypasses limiter completely
         if (LibDiamond.diamondStorage().contractOwner != sender) {
@@ -174,6 +178,8 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
         address sender = _msgSender();
         require(GNUSNFTFactoryStorage.layout().NFTs[id].nftCreated, "Token not created.");
         require(balanceOf(sender, id) >= amount, "Insufficient tokens.");
+
+        require(destChainID != GNUSControlStorage.layout().chainID, "Cannot bridge to same chain");
         _burn(sender, id, amount);
         emit BridgeSourceBurned(
             sender,
