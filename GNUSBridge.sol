@@ -40,7 +40,8 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
         uint256 id,
         uint256 amount,
         uint256 srcChainID,
-        uint256 destChainID
+        uint256 destChainID,
+        bytes sgnsDestination
     );
 
     /**
@@ -174,19 +175,21 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
      * @param id Token ID being bridged.
      * @param destChainID Destination chain ID.
      */
-    function bridgeOut(uint256 amount, uint256 id, uint256 destChainID) external {
+    function bridgeOut(uint256 amount, uint256 id, uint256 destChainID, bytes calldata sgnsDestination) external {
         address sender = _msgSender();
         require(GNUSNFTFactoryStorage.layout().NFTs[id].nftCreated, "Token not created.");
         require(balanceOf(sender, id) >= amount, "Insufficient tokens.");
 
         require(destChainID != GNUSControlStorage.layout().chainID, "Cannot bridge to same chain");
+        require(sgnsDestination.length == 64, "Invalid destination key length");
         _burn(sender, id, amount);
         emit BridgeSourceBurned(
             sender,
             id,
             amount,
             GNUSControlStorage.layout().chainID,
-            destChainID
+            destChainID,
+            sgnsDestination
         );
     }
 
