@@ -33,8 +33,10 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
      * @param amount Amount of tokens being bridged.
      * @param srcChainID Source chain ID.
      * @param destChainID Destination chain ID.
-     * @param sgnsDestination 32-byte destination address on the destination chain — the compressed
-     * X-only (X+Y) elliptic curve public key of the SuperGenius chain recipient (not an Ethereum address).
+     * @param sgnsDestination 32-byte X component of the destination recipient's elliptic curve public key
+     * on the SuperGenius chain (not an Ethereum address).
+     * @param destinationYOdd Parity of the Y component of the public key (false = even, true = odd),
+     * used together with `sgnsDestination` to reconstruct the full public key.
      * @dev Emitted when token holder wants to bridge to another chain
      */
     event BridgeOutInitiated(
@@ -43,7 +45,8 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
         uint256 amount,
         uint256 srcChainID,
         uint256 destChainID,
-        bytes32 sgnsDestination
+        bytes32 sgnsDestination,
+        bool destinationYOdd
     );
 
     /**
@@ -176,10 +179,18 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
      * @param amount Amount of tokens to bridge.
      * @param id Token ID being bridged.
      * @param destChainID Destination chain ID.
-     * @param sgnsDestination 32-byte destination address on the destination chain — the compressed
-     * X-only (X+Y) elliptic curve public key of the SuperGenius chain recipient (not an Ethereum address).
+     * @param sgnsDestination 32-byte X component of the destination recipient's elliptic curve public key
+     * on the SuperGenius chain (not an Ethereum address).
+     * @param destinationYOdd Parity of the Y component of the public key (false = even, true = odd),
+     * used together with `sgnsDestination` to reconstruct the full public key.
      */
-    function bridgeOut(uint256 amount, uint256 id, uint256 destChainID, bytes32 sgnsDestination) external {
+    function bridgeOut(
+        uint256 amount,
+        uint256 id,
+        uint256 destChainID,
+        bytes32 sgnsDestination,
+        bool destinationYOdd
+    ) external {
         address sender = _msgSender();
         require(GNUSNFTFactoryStorage.layout().NFTs[id].nftCreated, "Token not created.");
         require(balanceOf(sender, id) >= amount, "Insufficient tokens.");
@@ -192,7 +203,8 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
             amount,
             GNUSControlStorage.layout().chainID,
             destChainID,
-            sgnsDestination
+            sgnsDestination,
+            destinationYOdd
         );
     }
 
