@@ -27,21 +27,23 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
     uint256 private constant FEE_DOMINATOR = 1000;
 
     /**
-     * @notice Emitted when tokens are burned for bridging to another chain.
+     * @notice Emitted when a token holder initiates a bridge to another chain.
      * @param sender Address initiating the bridge operation.
-     * @param id Token ID being burned.
-     * @param amount Amount of tokens burned.
+     * @param id Token ID being bridged.
+     * @param amount Amount of tokens being bridged.
      * @param srcChainID Source chain ID.
      * @param destChainID Destination chain ID.
+     * @param sgnsDestination 32-byte destination address on the destination chain — the compressed
+     * X-only (X+Y) elliptic curve public key of the SuperGenius chain recipient (not an Ethereum address).
      * @dev Emitted when token holder wants to bridge to another chain
      */
-    event BridgeSourceBurned(
+    event BridgeOutInitiated(
         address indexed sender,
         uint256 id,
         uint256 amount,
         uint256 srcChainID,
         uint256 destChainID,
-        bytes sgnsDestination
+        bytes32 sgnsDestination
     );
 
     /**
@@ -174,16 +176,17 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
      * @param amount Amount of tokens to bridge.
      * @param id Token ID being bridged.
      * @param destChainID Destination chain ID.
+     * @param sgnsDestination 32-byte destination address on the destination chain — the compressed
+     * X-only (X+Y) elliptic curve public key of the SuperGenius chain recipient (not an Ethereum address).
      */
-    function bridgeOut(uint256 amount, uint256 id, uint256 destChainID, bytes calldata sgnsDestination) external {
+    function bridgeOut(uint256 amount, uint256 id, uint256 destChainID, bytes32 sgnsDestination) external {
         address sender = _msgSender();
         require(GNUSNFTFactoryStorage.layout().NFTs[id].nftCreated, "Token not created.");
         require(balanceOf(sender, id) >= amount, "Insufficient tokens.");
 
         require(destChainID != GNUSControlStorage.layout().chainID, "Cannot bridge to same chain");
-        require(sgnsDestination.length == 64, "Invalid destination key length");
         _burn(sender, id, amount);
-        emit BridgeSourceBurned(
+        emit BridgeOutInitiated(
             sender,
             id,
             amount,
