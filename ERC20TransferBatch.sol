@@ -155,6 +155,10 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
         // Super admin bypasses limiter completely
         if (LibDiamond.diamondStorage().contractOwner != operator) {
             GNUSWithdrawLimiterStorage.checkAndRecordWithdraw(operator, totalAmount);
+        } else {
+            emit GNUSWithdrawLimiterStorage.SuperAdminBypass(
+                operator, totalAmount, "ERC20TransferBatch.batchTransfer"
+            );
         }
 
         _beforeTokenTransfer(operator, destinations, amounts);

@@ -168,6 +168,10 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
         // Super admin bypasses limiter completely
         if (LibDiamond.diamondStorage().contractOwner != sender) {
             GNUSWithdrawLimiterStorage.checkAndRecordWithdraw(sender, convAmount);
+        } else {
+            emit GNUSWithdrawLimiterStorage.SuperAdminBypass(
+                sender, convAmount, "GNUSBridge.withdraw"
+            );
         }
 
         _burn(sender, id, amount);

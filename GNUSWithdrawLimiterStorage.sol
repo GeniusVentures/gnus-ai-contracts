@@ -59,6 +59,12 @@ library GNUSWithdrawLimiterStorage {
         uint256 binIndex
     );
 
+    /// @notice Event emitted when super admin bypasses the withdraw limiter
+    /// @param caller The super admin address that bypassed the limiter
+    /// @param amount The amount that was allowed through without limit checks
+    /// @param context Human-readable identifier for the bypass location
+    event SuperAdminBypass(address indexed caller, uint256 amount, string context);
+
     /// @notice Event emitted when a withdrawal is blocked by the limiter
     /// @param account The account attempting withdrawal
     /// @param requestedAmount The amount requested

@@ -56,6 +56,10 @@ contract GNUSERC1155MaxSupply is
                 // Super admin bypasses limiter
                 if (LibDiamond.diamondStorage().contractOwner != operator) {
                     GNUSWithdrawLimiterStorage.checkAndRecordWithdraw(operator, totalGNUSAmount);
+                } else {
+                    emit GNUSWithdrawLimiterStorage.SuperAdminBypass(
+                        operator, totalGNUSAmount, "GNUSERC1155MaxSupply._beforeTokenTransfer"
+                    );
                 }
             }
         }
