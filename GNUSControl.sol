@@ -37,6 +37,12 @@ contract GNUSControl is GeniusAccessControl {
     /// @param newFee The new bridge fee value.
     event UpdateBridgeFee(uint256 indexed newFee);
 
+    /// @dev Emitted when the diamond-wide emergency pause is activated.
+    event Paused(address indexed caller);
+
+    /// @dev Emitted when the diamond-wide emergency pause is deactivated.
+    event Unpaused(address indexed caller);
+
     bytes4 constant GNUS_NFT_INIT_SELECTOR = bytes4(keccak256(bytes('GNUSNFTFactory_Initialize()')));
     bytes32 constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
@@ -53,6 +59,31 @@ contract GNUSControl is GeniusAccessControl {
 
         GNUSControlStorage.layout().protocolVersion = 230;
         InitializableStorage.layout()._initialized = true;
+    }
+
+    /**
+     * @notice Activates the diamond-wide emergency pause.
+     * @dev Halts all state-changing operations across facets.
+     */
+    function pause() external onlySuperAdminRole {
+        GNUSControlStorage.layout().paused = true;
+        emit Paused(_msgSender());
+    }
+
+    /**
+     * @notice Deactivates the diamond-wide emergency pause.
+     * @dev Restores normal operation across all facets.
+     */
+    function unpause() external onlySuperAdminRole {
+        GNUSControlStorage.layout().paused = false;
+        emit Unpaused(_msgSender());
+    }
+
+    /**
+     * @notice Returns whether the diamond is currently paused.
+     */
+    function paused() external view returns (bool) {
+        return GNUSControlStorage.layout().paused;
     }
 
     /**

@@ -37,42 +37,42 @@ contract GNUSERC1155MaxSupply is
         uint256[] memory ids,
         uint256[] memory amounts,
         bytes memory data
-    ) internal override(ERC1155Upgradeable, ERC1155SupplyUpgradeable) whenNotPaused {
+    ) internal override(ERC1155Upgradeable, ERC1155SupplyUpgradeable) {
+        require(!GNUSControlStorage.layout().paused, "GNUSControl: contract paused");
         super._beforeTokenTransfer(operator, from, to, ids, amounts, data);
 
-        // Apply withdrawal limiter for GNUS token transfers
-        // Only check non-minting transfers (from != address(0))
-        if (from != address(0)) {
-            // Aggregate GNUS token amounts
-            uint256 totalGNUSAmount = 0;
-            for (uint256 i = 0; i < ids.length; ++i) {
-                if (ids[i] == GNUS_TOKEN_ID) {
-                    totalGNUSAmount += amounts[i];
-                }
-            }
-
-            // If transferring GNUS tokens, check limiter (unless super admin)
-            if (totalGNUSAmount > 0) {
-                // Super admin bypasses limiter
-                if (LibDiamond.diamondStorage().contractOwner != operator) {
-                    GNUSWithdrawLimiterStorage.checkAndRecordWithdraw(operator, totalGNUSAmount);
-                } else {
-                    emit GNUSWithdrawLimiterStorage.SuperAdminBypass(
-                        operator, totalGNUSAmount, "GNUSERC1155MaxSupply._beforeTokenTransfer"
-                    );
-                }
-            }
-        }
-
-        // Check banned transferors and max supply (existing logic)
+        // Single-pass loop: aggregate GNUS amounts, check banned transferors, enforce max supply
+        uint256 totalGNUSAmount = 0;
+        bool isMinting = from == address(0);
         for (uint256 i = 0; i < ids.length; ++i) {
             uint256 id = ids[i];
+
+            // Aggregate GNUS token amounts for withdrawal limiter
+            if (!isMinting && id == GNUS_TOKEN_ID) {
+                totalGNUSAmount += amounts[i];
+            }
+
+            // Check banned transferors
             require(!GNUSControlStorage.isBannedTransferor(id, operator), "Blocked transferor");
-            if (from == address(0))
+
+            // Enforce max supply on minting
+            if (isMinting) {
                 require(
                     totalSupply(id) <= GNUSNFTFactoryStorage.layout().NFTs[id].maxSupply,
                     "Max Supply for NFT would be exceeded"
                 );
+            }
+        }
+
+        // Apply withdrawal limiter for GNUS token transfers (non-minting only)
+        if (!isMinting && totalGNUSAmount > 0) {
+            if (LibDiamond.diamondStorage().contractOwner != operator) {
+                GNUSWithdrawLimiterStorage.checkAndRecordWithdraw(operator, totalGNUSAmount);
+            } else {
+                emit GNUSWithdrawLimiterStorage.SuperAdminBypass(
+                    operator, totalGNUSAmount, "GNUSERC1155MaxSupply._beforeTokenTransfer"
+                );
+            }
         }
     }
 

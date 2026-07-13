@@ -22,6 +22,14 @@ library GNUSControlStorage {
         uint256 protocolVersion;
         /// @dev The chain ID for the current chain.
         uint256 chainID;
+        /// @dev Diamond-wide emergency pause flag.
+        bool paused;
+    }
+
+    /// @notice Require that the contract is not paused.
+    modifier whenNotPaused() {
+        require(!layout().paused, "GNUSControl: contract paused");
+        _;
     }
 
     using LibDiamond for LibDiamond.DiamondStorage;
