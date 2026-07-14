@@ -65,7 +65,7 @@ contract GNUSControl is GeniusAccessControl {
      * @notice Activates the diamond-wide emergency pause.
      * @dev Halts all state-changing operations across facets.
      */
-    function pause() external onlySuperAdminRole {
+    function emergencyPause() external onlySuperAdminRole {
         GNUSControlStorage.layout().paused = true;
         emit Paused(_msgSender());
     }
@@ -74,15 +74,15 @@ contract GNUSControl is GeniusAccessControl {
      * @notice Deactivates the diamond-wide emergency pause.
      * @dev Restores normal operation across all facets.
      */
-    function unpause() external onlySuperAdminRole {
+    function emergencyUnpause() external onlySuperAdminRole {
         GNUSControlStorage.layout().paused = false;
         emit Unpaused(_msgSender());
     }
 
     /**
-     * @notice Returns whether the diamond is currently paused.
+     * @notice Returns whether the diamond is currently emergency-paused.
      */
-    function paused() external view returns (bool) {
+    function isEmergencyPaused() external view returns (bool) {
         return GNUSControlStorage.layout().paused;
     }
 
