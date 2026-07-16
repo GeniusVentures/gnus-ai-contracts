@@ -2,7 +2,6 @@
 pragma solidity ^0.8.19;
 
 import "@gnus.ai/contracts-upgradeable-diamond/token/ERC1155/extensions/ERC1155SupplyUpgradeable.sol";
-import "@gnus.ai/contracts-upgradeable-diamond/security/PausableUpgradeable.sol";
 import "@gnus.ai/contracts-upgradeable-diamond/token/ERC1155/extensions/ERC1155BurnableUpgradeable.sol";
 import "./GNUSNFTFactoryStorage.sol";
 import "./GNUSControlStorage.sol";
@@ -11,11 +10,11 @@ import "./GNUSConstants.sol";
 import {LibDiamond} from "contracts-starter/contracts/libraries/LibDiamond.sol";
 
 /// @title GNUSERC1155MaxSupply
-/// @notice This contract extends ERC1155 functionality with supply management, pausing, and burning capabilities.
-/// @dev This contract uses the GNUSNFTFactoryStorage and GNUSControlStorage libraries for additional storage management.
+/// @notice This contract extends ERC1155 functionality with supply management and burning capabilities.
+/// @dev Diamond-wide emergency pause is enforced via GNUSControlStorage.layout().paused (see _beforeTokenTransfer),
+/// not OpenZeppelin's PausableUpgradeable, which was removed as vestigial.
 contract GNUSERC1155MaxSupply is
     ERC1155SupplyUpgradeable,
-    PausableUpgradeable,
     ERC1155BurnableUpgradeable
 {
     using GNUSNFTFactoryStorage for GNUSNFTFactoryStorage.Layout;
@@ -65,6 +64,9 @@ contract GNUSERC1155MaxSupply is
         }
 
         // Apply withdrawal limiter for GNUS token transfers (non-minting only)
+        // WR-07: GNUSBridge.withdraw() and bridgeOut() for id == GNUS_TOKEN_ID rely on THIS hook
+        // as the single charge point for the limiter on their _burn path. Do not add a second
+        // explicit checkAndRecordWithdraw call on those paths, or users will be double-limited.
         if (!isMinting && totalGNUSAmount > 0) {
             if (LibDiamond.diamondStorage().contractOwner != operator) {
                 GNUSWithdrawLimiterStorage.checkAndRecordWithdraw(operator, totalGNUSAmount);

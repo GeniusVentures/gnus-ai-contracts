@@ -26,12 +26,6 @@ library GNUSControlStorage {
         bool paused;
     }
 
-    /// @notice Require that the contract is not paused.
-    modifier whenNotPaused() {
-        require(!layout().paused, "GNUSControl: contract paused");
-        _;
-    }
-
     using LibDiamond for LibDiamond.DiamondStorage;
 
     /// @dev Unique storage slot identifier for GNUS control storage.

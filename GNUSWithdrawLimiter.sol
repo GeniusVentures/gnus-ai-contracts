@@ -124,6 +124,11 @@ contract GNUSWithdrawLimiter is GeniusAccessControl {
         uint64 windowSeconds,
         uint256 limitAmount
     ) external onlySuperAdminRole {
+        // CR-02: validate inputs. binCount == 0 means "use default"; any non-zero
+        // value must be within the cap (mirrors setDefaultBinCount). Zero-address
+        // accounts would otherwise pollute the config mapping uselessly.
+        require(account != address(0), "Zero address");
+        require(binCount == 0 || binCount <= MAX_BIN_COUNT, "Bin count exceeds maximum");
         GNUSWithdrawLimiterStorage.Layout storage l = GNUSWithdrawLimiterStorage.layout();
         l.accountConfigs[account] = AccountConfig({
             binCount: binCount,

@@ -198,6 +198,17 @@ library GNUSWithdrawLimiterStorage {
         AccountState storage state = l.accountStates[account];
         uint256 currentTime = block.timestamp;
 
+        // CR-02: if the effective binCount changed after the account's first
+        // withdrawal, the existing bins array no longer matches the config
+        // granularity. Reset the timeline so it re-initializes on this withdrawal.
+        // Without this, calculateCurrentBin would index modulo the NEW binCount
+        // into an array of the OLD length, going out of bounds and permanently
+        // locking the account out of its funds until admin intervention.
+        if (state.baseTimestamp != 0 && state.bins.length != config.binCount) {
+            delete state.bins;
+            state.baseTimestamp = 0;
+        }
+
         // Initialize base timestamp on first withdrawal
         if (state.baseTimestamp == 0) {
             state.baseTimestamp = uint128(currentTime);
