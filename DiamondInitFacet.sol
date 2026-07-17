@@ -36,7 +36,7 @@ contract DiamondInitFacet is ContextUpgradeable, GeniusAccessControl {
     /// @notice Initializes the diamond with version 2.5.0
     /// @dev Sets up initial roles and permissions for the contract
     /// @custom:security Verify roles are properly set up
-    function diamondInitialize250() public {
+    function diamondInitialize250() public onlySuperAdminRole {
         address sender = _msgSender();
         emit InitLog(sender, "diamondInitialize Function called");
 

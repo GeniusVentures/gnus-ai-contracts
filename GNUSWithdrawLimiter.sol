@@ -30,6 +30,7 @@ import "./GNUSWithdrawLimiterStorage.sol";
  * - Status calculation uses bin aggregation (O(binCount) not O(n))
  */
 contract GNUSWithdrawLimiter is GeniusAccessControl {
+    uint256 private constant MAX_BIN_COUNT = 256;
     // Events
 
     /**
@@ -98,6 +99,7 @@ contract GNUSWithdrawLimiter is GeniusAccessControl {
      */
     function setDefaultBinCount(uint256 binCount) external onlySuperAdminRole {
         require(binCount > 0, "Bin count must be greater than 0");
+        require(binCount <= MAX_BIN_COUNT, "Bin count exceeds maximum");
         GNUSWithdrawLimiterStorage.Layout storage l = GNUSWithdrawLimiterStorage.layout();
         l.defaultBinCount = binCount;
         emit WithdrawLimiterConfigUpdated(
@@ -122,6 +124,11 @@ contract GNUSWithdrawLimiter is GeniusAccessControl {
         uint64 windowSeconds,
         uint256 limitAmount
     ) external onlySuperAdminRole {
+        // CR-02: validate inputs. binCount == 0 means "use default"; any non-zero
+        // value must be within the cap (mirrors setDefaultBinCount). Zero-address
+        // accounts would otherwise pollute the config mapping uselessly.
+        require(account != address(0), "Zero address");
+        require(binCount == 0 || binCount <= MAX_BIN_COUNT, "Bin count exceeds maximum");
         GNUSWithdrawLimiterStorage.Layout storage l = GNUSWithdrawLimiterStorage.layout();
         l.accountConfigs[account] = AccountConfig({
             binCount: binCount,

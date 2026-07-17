@@ -24,24 +24,31 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
     string public constant name = "Genius Token & NFT Collections";
     string public constant symbol = "GNUS";
     uint8 public constant decimals = 18;
+    /// @dev Fee denominator (thousandths). Bridge fee math: `amount * (1000 - fee) / 1000`.
+    /// Cap is GNUSControl.MAX_FEE (200 = 20%).
     uint256 private constant FEE_DOMINATOR = 1000;
 
     /**
-     * @notice Emitted when tokens are burned for bridging to another chain.
+     * @notice Emitted when a token holder initiates a bridge to another chain.
      * @param sender Address initiating the bridge operation.
-     * @param id Token ID being burned.
-     * @param amount Amount of tokens burned.
+     * @param id Token ID being bridged.
+     * @param amount Amount of tokens being bridged.
      * @param srcChainID Source chain ID.
      * @param destChainID Destination chain ID.
+     * @param sgnsDestination 32-byte X component of the destination recipient's elliptic curve public key
+     * on the SuperGenius chain (not an Ethereum address).
+     * @param destinationYOdd Parity of the Y component of the public key (false = even, true = odd),
+     * used together with `sgnsDestination` to reconstruct the full public key.
      * @dev Emitted when token holder wants to bridge to another chain
      */
-    event BridgeSourceBurned(
+    event BridgeOutInitiated(
         address indexed sender,
         uint256 id,
         uint256 amount,
         uint256 srcChainID,
         uint256 destChainID,
-        bytes sgnsDestination
+        bytes32 sgnsDestination,
+        bool destinationYOdd
     );
 
     /**
@@ -160,9 +167,18 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
         // Exchange rate = NFTs per GNUS, so divide to get GNUS amount
         uint256 convAmount = amount / exchangeRate;
 
+        // WR-07 one-charge invariant: the limiter is charged exactly once, HERE, for convAmount.
+        // The subsequent _burn(sender, id, amount) routes through _beforeTokenTransfer, but the hook
+        // only aggregates id == GNUS_TOKEN_ID (and id != GNUS_TOKEN_ID here, see require above), so it
+        // does NOT re-charge. The _mintWithBridgeFee(...) is a mint (isMinting == true), also skipped.
+        // If you change either gate you WILL double-limit users.
         // Super admin bypasses limiter completely
         if (LibDiamond.diamondStorage().contractOwner != sender) {
             GNUSWithdrawLimiterStorage.checkAndRecordWithdraw(sender, convAmount);
+        } else {
+            emit GNUSWithdrawLimiterStorage.SuperAdminBypass(
+                sender, convAmount, "GNUSBridge.withdraw"
+            );
         }
 
         _burn(sender, id, amount);
@@ -174,22 +190,49 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
      * @param amount Amount of tokens to bridge.
      * @param id Token ID being bridged.
      * @param destChainID Destination chain ID.
+     * @param sgnsDestination 32-byte X component of the destination recipient's elliptic curve public key
+     * on the SuperGenius chain (not an Ethereum address).
+     * @param destinationYOdd Parity of the Y component of the public key (false = even, true = odd),
+     * used together with `sgnsDestination` to reconstruct the full public key.
      */
-    function bridgeOut(uint256 amount, uint256 id, uint256 destChainID, bytes calldata sgnsDestination) external {
+    function bridgeOut(
+        uint256 amount,
+        uint256 id,
+        uint256 destChainID,
+        bytes32 sgnsDestination,
+        bool destinationYOdd
+    ) external {
         address sender = _msgSender();
         require(GNUSNFTFactoryStorage.layout().NFTs[id].nftCreated, "Token not created.");
         require(balanceOf(sender, id) >= amount, "Insufficient tokens.");
+        require(sgnsDestination != bytes32(0), "Invalid destination key");
 
         require(destChainID != GNUSControlStorage.layout().chainID, "Cannot bridge to same chain");
-        require(sgnsDestination.length == 64, "Invalid destination key length");
+
+        // CR-03: child-token (id != GNUS_TOKEN_ID) bridging skips the limiter hook
+        // (the hook only aggregates GNUS_TOKEN_ID), so apply it explicitly here in
+        // GNUS-equivalent terms, mirroring withdraw(). GNUS bridging is already charged
+        // by the _burn hook, so it is excluded to avoid double-charging the user.
+        if (id != GNUS_TOKEN_ID) {
+            uint256 exchangeRate = GNUSNFTFactoryStorage.layout().NFTs[id].exchangeRate;
+            require(exchangeRate > 0, "Exchange rate must be greater than zero");
+            uint256 convAmount = amount / exchangeRate;
+            if (LibDiamond.diamondStorage().contractOwner != sender) {
+                GNUSWithdrawLimiterStorage.checkAndRecordWithdraw(sender, convAmount);
+            } else {
+                emit GNUSWithdrawLimiterStorage.SuperAdminBypass(sender, convAmount, "GNUSBridge.bridgeOut");
+            }
+        }
+
         _burn(sender, id, amount);
-        emit BridgeSourceBurned(
+        emit BridgeOutInitiated(
             sender,
             id,
             amount,
             GNUSControlStorage.layout().chainID,
             destChainID,
-            sgnsDestination
+            sgnsDestination,
+            destinationYOdd
         );
     }
 

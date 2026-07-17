@@ -59,6 +59,12 @@ library GNUSWithdrawLimiterStorage {
         uint256 binIndex
     );
 
+    /// @notice Event emitted when super admin bypasses the withdraw limiter
+    /// @param caller The super admin address that bypassed the limiter
+    /// @param amount The amount that was allowed through without limit checks
+    /// @param context Human-readable identifier for the bypass location
+    event SuperAdminBypass(address indexed caller, uint256 amount, string context);
+
     /// @notice Event emitted when a withdrawal is blocked by the limiter
     /// @param account The account attempting withdrawal
     /// @param requestedAmount The amount requested
@@ -191,6 +197,17 @@ library GNUSWithdrawLimiterStorage {
         AccountConfig memory config = getAccountConfigOrDefaults(account);
         AccountState storage state = l.accountStates[account];
         uint256 currentTime = block.timestamp;
+
+        // CR-02: if the effective binCount changed after the account's first
+        // withdrawal, the existing bins array no longer matches the config
+        // granularity. Reset the timeline so it re-initializes on this withdrawal.
+        // Without this, calculateCurrentBin would index modulo the NEW binCount
+        // into an array of the OLD length, going out of bounds and permanently
+        // locking the account out of its funds until admin intervention.
+        if (state.baseTimestamp != 0 && state.bins.length != config.binCount) {
+            delete state.bins;
+            state.baseTimestamp = 0;
+        }
 
         // Initialize base timestamp on first withdrawal
         if (state.baseTimestamp == 0) {
