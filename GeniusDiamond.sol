@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.2;
+pragma solidity ^0.8.19;
 
 import "contracts-starter/contracts/facets/DiamondLoupeFacet.sol";
 import "contracts-starter/contracts/facets/DiamondCutFacet.sol";

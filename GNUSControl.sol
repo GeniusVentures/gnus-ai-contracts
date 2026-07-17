@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.2;
+pragma solidity ^0.8.19;
 
 import "./GNUSConstants.sol";
 import "./GNUSControlStorage.sol";
@@ -19,6 +19,8 @@ import "./GNUSBridge.sol";
 contract GNUSControl is GeniusAccessControl {
     using GNUSControlStorage for GNUSControlStorage.Layout;
 
+    /// @dev Maximum bridge fee expressed in thousandths (per-mille ×10): 200 = 20%.
+    /// Pair with GNUSBridge.FEE_DOMINATOR (1000) in `amount * (1000 - fee) / 1000`.
     uint256 private constant MAX_FEE = 200;
 
     /// @dev Emitted when addresses or token IDs are added to the blacklist.
@@ -37,6 +39,12 @@ contract GNUSControl is GeniusAccessControl {
     /// @param newFee The new bridge fee value.
     event UpdateBridgeFee(uint256 indexed newFee);
 
+    /// @dev Emitted when the diamond-wide emergency pause is activated.
+    event Paused(address indexed caller);
+
+    /// @dev Emitted when the diamond-wide emergency pause is deactivated.
+    event Unpaused(address indexed caller);
+
     bytes4 constant GNUS_NFT_INIT_SELECTOR = bytes4(keccak256(bytes('GNUSNFTFactory_Initialize()')));
     bytes32 constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
@@ -53,6 +61,31 @@ contract GNUSControl is GeniusAccessControl {
 
         GNUSControlStorage.layout().protocolVersion = 230;
         InitializableStorage.layout()._initialized = true;
+    }
+
+    /**
+     * @notice Activates the diamond-wide emergency pause.
+     * @dev Halts all state-changing operations across facets.
+     */
+    function emergencyPause() external onlySuperAdminRole {
+        GNUSControlStorage.layout().paused = true;
+        emit Paused(_msgSender());
+    }
+
+    /**
+     * @notice Deactivates the diamond-wide emergency pause.
+     * @dev Restores normal operation across all facets.
+     */
+    function emergencyUnpause() external onlySuperAdminRole {
+        GNUSControlStorage.layout().paused = false;
+        emit Unpaused(_msgSender());
+    }
+
+    /**
+     * @notice Returns whether the diamond is currently emergency-paused.
+     */
+    function isEmergencyPaused() external view returns (bool) {
+        return GNUSControlStorage.layout().paused;
     }
 
     /**
@@ -82,6 +115,7 @@ contract GNUSControl is GeniusAccessControl {
         uint256[] calldata tokenIds,
         address[] calldata bannedAddresses
     ) external onlySuperAdminRole {
+        require(tokenIds.length == bannedAddresses.length, "Array length mismatch");
         for (uint256 i; i < tokenIds.length; ) {
             GNUSControlStorage.layout().bannedTransferors[tokenIds[i]][bannedAddresses[i]] = true;
             unchecked {
@@ -100,6 +134,7 @@ contract GNUSControl is GeniusAccessControl {
         uint256[] calldata tokenIds,
         address[] calldata bannedAddresses
     ) external onlySuperAdminRole {
+        require(tokenIds.length == bannedAddresses.length, "Array length mismatch");
         for (uint256 i; i < tokenIds.length; ) {
             GNUSControlStorage.layout().bannedTransferors[tokenIds[i]][bannedAddresses[i]] = false;
             unchecked {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.2;
+pragma solidity ^0.8.19;
 
 /// @title GNUSNFTCollectionName
 /// @notice This contract defines the name of the Genius NFT Collection.

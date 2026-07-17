@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.2;
+pragma solidity ^0.8.19;
 
 import "@gnus.ai/contracts-upgradeable-diamond/proxy/utils/Initializable.sol";
 import "./GNUSERC1155MaxSupply.sol";
@@ -24,7 +24,6 @@ contract GNUSNFTFactory is Initializable, GNUSERC1155MaxSupply, GeniusAccessCont
     function GNUSNFTFactory_Initialize() public onlySuperAdminRole {
         InitializableStorage.layout()._initializing = true;
         __ERC1155_init("");
-        __Pausable_init();
         __ERC1155Burnable_init();
         __ERC1155Supply_init();
         __GeniusAccessControl_init();
@@ -73,18 +72,6 @@ contract GNUSNFTFactory is Initializable, GNUSERC1155MaxSupply, GeniusAccessCont
         NFT storage nft = GNUSNFTFactoryStorage.layout().NFTs[id];
         require(nft.nftCreated, "NFT must already be created to get the URI for it");
         return nft.uri;
-    }
-
-    /// @notice Pauses all token transfers.
-    /// @dev This function can only be called by an account with the DEFAULT_ADMIN_ROLE.
-    function pause() public onlyRole(DEFAULT_ADMIN_ROLE) {
-        _pause();
-    }
-
-    /// @notice Unpauses all token transfers.
-    /// @dev This function can only be called by an account with the DEFAULT_ADMIN_ROLE.
-    function unpause() public onlyRole(DEFAULT_ADMIN_ROLE) {
-        _unpause();
     }
 
     /// @notice Internal function to perform checks before minting an NFT.

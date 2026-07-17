@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.2;
+pragma solidity ^0.8.19;
 
 import "contracts-starter/contracts/libraries/LibDiamond.sol";
 
@@ -22,6 +22,8 @@ library GNUSControlStorage {
         uint256 protocolVersion;
         /// @dev The chain ID for the current chain.
         uint256 chainID;
+        /// @dev Diamond-wide emergency pause flag.
+        bool paused;
     }
 
     using LibDiamond for LibDiamond.DiamondStorage;

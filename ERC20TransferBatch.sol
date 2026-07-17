@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.2;
+pragma solidity ^0.8.19;
 
 import "@gnus.ai/contracts-upgradeable-diamond/proxy/utils/Initializable.sol";
 import "@gnus.ai/contracts-upgradeable-diamond/token/ERC20/IERC20Upgradeable.sol";
@@ -8,6 +8,7 @@ import "./GNUSERC1155MaxSupply.sol";
 import "./GNUSNFTFactoryStorage.sol";
 import "./GeniusAccessControl.sol";
 import "./GNUSConstants.sol";
+import "./GNUSControlStorage.sol";
 import "./GNUSWithdrawLimiterStorage.sol";
 
 /// @custom:security-contact support@gnus.ai
@@ -40,6 +41,7 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
     /// @param destinations The addresses to receive the minted tokens.
     /// @param amounts The corresponding amounts of tokens to mint for each destination.
     function mintBatch(address[] memory destinations, uint256[] memory amounts) external payable {
+        require(msg.value == 0, "ETH not accepted");
         address operator = _msgSender();
         require(
             hasRole(DEFAULT_ADMIN_ROLE, operator),
@@ -112,6 +114,10 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
     /// @param amounts The amounts of tokens to mint for each address.
     function _mintBatch(address[] memory destinations, uint256[] memory amounts) internal virtual {
         address operator = _msgSender();
+        // CR-01: batch paths bypass the ERC1155 _beforeTokenTransfer hook (different signature),
+        // so enforce the diamond-wide pause and banned-transferor check explicitly here.
+        require(!GNUSControlStorage.layout().paused, "GNUSControl: contract paused");
+        require(!GNUSControlStorage.isBannedTransferor(GNUS_TOKEN_ID, operator), "Blocked transferor");
         require(
             destinations.length == amounts.length,
             "TransferBatch: to and amounts length mismatch"
@@ -140,6 +146,10 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
         bool checkBurn
     ) internal virtual {
         address operator = _msgSender();
+        // CR-01: batch paths bypass the ERC1155 _beforeTokenTransfer hook (different signature),
+        // so enforce the diamond-wide pause and banned-transferor check explicitly here.
+        require(!GNUSControlStorage.layout().paused, "GNUSControl: contract paused");
+        require(!GNUSControlStorage.isBannedTransferor(GNUS_TOKEN_ID, operator), "Blocked transferor");
         require(
             destinations.length == amounts.length,
             "TransferBatch: to and amounts length mismatch"
@@ -154,6 +164,10 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
         // Super admin bypasses limiter completely
         if (LibDiamond.diamondStorage().contractOwner != operator) {
             GNUSWithdrawLimiterStorage.checkAndRecordWithdraw(operator, totalAmount);
+        } else {
+            emit GNUSWithdrawLimiterStorage.SuperAdminBypass(
+                operator, totalAmount, "ERC20TransferBatch.batchTransfer"
+            );
         }
 
         _beforeTokenTransfer(operator, destinations, amounts);
@@ -173,7 +187,12 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
                 ERC1155Storage.layout()._balances[GNUS_TOKEN_ID][operator] =
                     fromBalance -
                     amounts[i];
-                ERC1155Storage.layout()._balances[GNUS_TOKEN_ID][to] += amounts[i];
+                // WR-03: when `to == address(0)` (burn path, checkBurn == false) the totalSupply
+                // was already decremented by _beforeTokenTransfer, so do not also credit the zero
+                // address — that state is unreclaimable pollution.
+                if (to != address(0)) {
+                    ERC1155Storage.layout()._balances[GNUS_TOKEN_ID][to] += amounts[i];
+                }
             }
         }
 
