@@ -204,7 +204,7 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
     /// @notice Transfers a batch of tokens from the caller to multiple destinations.
     /// @param destinations The addresses to receive the tokens.
     /// @param amounts The amounts of tokens to transfer for each address.
-    function transferBatch(address[] memory destinations, uint256[] memory amounts) public payable {
+    function transferBatch(address[] memory destinations, uint256[] memory amounts) public {
         _transferBatch(destinations, amounts, true);
     }
 
@@ -214,7 +214,7 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
     function transferOrBurnBatch(
         address[] memory destinations,
         uint256[] memory amounts
-    ) public payable {
+    ) public {
         _transferBatch(destinations, amounts, false);
     }
 }
