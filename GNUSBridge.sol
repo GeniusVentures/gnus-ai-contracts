@@ -77,6 +77,11 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
     function _mintWithBridgeFee(address user, uint256 tokenID, uint256 amount) internal {
         uint256 bridgeFee = GNUSControlStorage.layout().bridgeFee;
         if (bridgeFee != 0) {
+            // WR-04: defense-in-depth. updateBridgeFee in GNUSControl enforces
+            // newFee <= MAX_FEE (200), but if MAX_FEE is ever raised above
+            // FEE_DOMINATOR, or storage is mis-initialized during an upgrade, the
+            // subtraction below would panic-revert with no message. Guard locally.
+            require(bridgeFee <= FEE_DOMINATOR, "Bridge fee exceeds dominator");
             amount = (amount * (FEE_DOMINATOR - bridgeFee)) / FEE_DOMINATOR;
         }
         _mint(user, tokenID, amount, "");
