@@ -67,12 +67,18 @@ contract GNUSERC1155MaxSupply is
         // WR-07: GNUSBridge.withdraw() and bridgeOut() for id == GNUS_TOKEN_ID rely on THIS hook
         // as the single charge point for the limiter on their _burn path. Do not add a second
         // explicit checkAndRecordWithdraw call on those paths, or users will be double-limited.
+        // WR-03: charge the limiter against the token OWNER (`from`), not the operator.
+        // In the ERC20 transferFrom path, operator is the approved spender — charging the
+        // spender would let an owner circumvent their own rate limit via an approved
+        // third party, and would let a rate-limited spender be blocked from executing
+        // approved transfers for other users.
         if (!isMinting && totalGNUSAmount > 0) {
+            address limiterSubject = (from != address(0) && from != operator) ? from : operator;
             if (LibDiamond.diamondStorage().contractOwner != operator) {
-                GNUSWithdrawLimiterStorage.checkAndRecordWithdraw(operator, totalGNUSAmount);
+                GNUSWithdrawLimiterStorage.checkAndRecordWithdraw(limiterSubject, totalGNUSAmount);
             } else {
                 emit GNUSWithdrawLimiterStorage.SuperAdminBypass(
-                    operator, totalGNUSAmount, "GNUSERC1155MaxSupply._beforeTokenTransfer"
+                    limiterSubject, totalGNUSAmount, "GNUSERC1155MaxSupply._beforeTokenTransfer"
                 );
             }
         }
