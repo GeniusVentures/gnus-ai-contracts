@@ -125,6 +125,9 @@ library GNUSWithdrawLimiterStorage {
         }
 
         // Calculate bin length: windowSeconds / binCount
+        // WR-02: guard against binCount > windowSeconds, which would make
+        // binLengthSeconds == 0 and cause a division-by-zero panic below.
+        require(config.binCount <= config.windowSeconds, "binCount exceeds windowSeconds");
         uint256 binLengthSeconds = config.windowSeconds / config.binCount;
 
         // Calculate elapsed time since base
