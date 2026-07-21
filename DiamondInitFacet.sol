@@ -41,9 +41,9 @@ contract DiamondInitFacet is ContextUpgradeable, GeniusAccessControl {
         emit InitLog(sender, "diamondInitialize Function called");
 
         // Set up roles and permissions
-        _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
-        _setupRole(MINTER_ROLE, _msgSender());
-        _setupRole(UPGRADER_ROLE, _msgSender());
+        _grantRole(DEFAULT_ADMIN_ROLE, _msgSender());
+        _grantRole(MINTER_ROLE, _msgSender());
+        _grantRole(UPGRADER_ROLE, _msgSender());
 
         // Enable ERC20 interface support
         LibDiamond.diamondStorage().supportedInterfaces[type(IERC20Upgradeable).interfaceId] = true;
