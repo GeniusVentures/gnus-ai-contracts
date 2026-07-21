@@ -20,7 +20,7 @@ contract GNUSControl is GeniusAccessControl {
     using GNUSControlStorage for GNUSControlStorage.Layout;
 
     /// @dev Maximum bridge fee expressed in thousandths (per-mille ×10): 200 = 20%.
-    /// Pair with GNUSBridge.FEE_DOMINATOR (1000) in `amount * (1000 - fee) / 1000`.
+    /// Pair with GNUSBridge.FEE_DENOMINATOR (1000) in `amount * (1000 - fee) / 1000`.
     uint256 private constant MAX_FEE = 200;
 
     /// @dev Emitted when addresses or token IDs are added to the blacklist.
