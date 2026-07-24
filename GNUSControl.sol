@@ -89,6 +89,20 @@ contract GNUSControl is GeniusAccessControl {
     }
 
     /**
+     * @notice Returns whether an address is banned from transferring a given token ID.
+     * @dev Delegates to GNUSControlStorage.isBannedTransferor; checks both the
+     *      global ban map (gBannedTransferors) and the per-token ban map
+     *      (bannedTransferors[tokenId]). Passing GNUS_TOKEN_ID (0) is the
+     *      caller-side convention for querying global-ban status.
+     * @param tokenId The ID of the token (0 = GNUS, used as the global-ban check).
+     * @param transferor The address to check.
+     * @return bool True if the transferor is banned, otherwise false.
+     */
+    function getBannedTransferor(uint256 tokenId, address transferor) external view returns (bool) {
+        return GNUSControlStorage.isBannedTransferor(tokenId, transferor);
+    }
+
+    /**
      * @notice Adds an address to the global transfer ban list.
      * @param bannedAddress The address to ban from transferring all tokens globally.
      */
