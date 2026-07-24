@@ -34,16 +34,20 @@ contract DiamondInitFacet is ContextUpgradeable, GeniusAccessControl {
     }
 
     /// @notice Initializes the diamond with version 2.5.0
-    /// @dev Sets up initial roles and permissions for the contract
+    /// @dev Sets up initial roles and permissions for the contract.
+    /// Each diamond version gets its own uniquely-named initializer (e.g.,
+    /// diamondInitialize250 for v2.5.0, diamondInitialize260 for v2.6.0) so
+    /// upgrades can target a specific initializer and prior initializers are
+    /// never re-executed.
     /// @custom:security Verify roles are properly set up
     function diamondInitialize250() public onlySuperAdminRole {
         address sender = _msgSender();
         emit InitLog(sender, "diamondInitialize Function called");
 
         // Set up roles and permissions
-        _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
-        _setupRole(MINTER_ROLE, _msgSender());
-        _setupRole(UPGRADER_ROLE, _msgSender());
+        _grantRole(DEFAULT_ADMIN_ROLE, _msgSender());
+        _grantRole(MINTER_ROLE, _msgSender());
+        _grantRole(UPGRADER_ROLE, _msgSender());
 
         // Enable ERC20 interface support
         LibDiamond.diamondStorage().supportedInterfaces[type(IERC20Upgradeable).interfaceId] = true;

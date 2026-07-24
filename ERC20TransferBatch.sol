@@ -38,10 +38,14 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
 
     /// @notice Mints a batch of tokens to multiple destinations.
     /// @dev Requires the caller to have the `DEFAULT_ADMIN_ROLE`.
+    /// IN-04: previously declared `payable` with a `require(msg.value == 0)` guard
+    /// purely to produce a friendlier revert message on accidental ETH sends.
+    /// The `payable` flag has been removed (matching IN-03 for transferBatch /
+    /// transferOrBurnBatch); Solidity's built-in non-payable revert is sufficient
+    /// and avoids stuck-ETH risk plus the per-call gas overhead of the guard.
     /// @param destinations The addresses to receive the minted tokens.
     /// @param amounts The corresponding amounts of tokens to mint for each destination.
-    function mintBatch(address[] memory destinations, uint256[] memory amounts) external payable {
-        require(msg.value == 0, "ETH not accepted");
+    function mintBatch(address[] memory destinations, uint256[] memory amounts) external {
         address operator = _msgSender();
         require(
             hasRole(DEFAULT_ADMIN_ROLE, operator),
@@ -204,7 +208,7 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
     /// @notice Transfers a batch of tokens from the caller to multiple destinations.
     /// @param destinations The addresses to receive the tokens.
     /// @param amounts The amounts of tokens to transfer for each address.
-    function transferBatch(address[] memory destinations, uint256[] memory amounts) public payable {
+    function transferBatch(address[] memory destinations, uint256[] memory amounts) public {
         _transferBatch(destinations, amounts, true);
     }
 
@@ -214,7 +218,7 @@ contract ERC20TransferBatch is Initializable, GNUSERC1155MaxSupply, GeniusAccess
     function transferOrBurnBatch(
         address[] memory destinations,
         uint256[] memory amounts
-    ) public payable {
+    ) public {
         _transferBatch(destinations, amounts, false);
     }
 }

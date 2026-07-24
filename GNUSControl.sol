@@ -20,7 +20,7 @@ contract GNUSControl is GeniusAccessControl {
     using GNUSControlStorage for GNUSControlStorage.Layout;
 
     /// @dev Maximum bridge fee expressed in thousandths (per-mille ×10): 200 = 20%.
-    /// Pair with GNUSBridge.FEE_DOMINATOR (1000) in `amount * (1000 - fee) / 1000`.
+    /// Pair with GNUSBridge.FEE_DENOMINATOR (1000) in `amount * (1000 - fee) / 1000`.
     uint256 private constant MAX_FEE = 200;
 
     /// @dev Emitted when addresses or token IDs are added to the blacklist.
@@ -86,6 +86,20 @@ contract GNUSControl is GeniusAccessControl {
      */
     function isEmergencyPaused() external view returns (bool) {
         return GNUSControlStorage.layout().paused;
+    }
+
+    /**
+     * @notice Returns whether an address is banned from transferring a given token ID.
+     * @dev Delegates to GNUSControlStorage.isBannedTransferor; checks both the
+     *      global ban map (gBannedTransferors) and the per-token ban map
+     *      (bannedTransferors[tokenId]). Passing GNUS_TOKEN_ID (0) is the
+     *      caller-side convention for querying global-ban status.
+     * @param tokenId The ID of the token (0 = GNUS, used as the global-ban check).
+     * @param transferor The address to check.
+     * @return bool True if the transferor is banned, otherwise false.
+     */
+    function getBannedTransferor(uint256 tokenId, address transferor) external view returns (bool) {
+        return GNUSControlStorage.isBannedTransferor(tokenId, transferor);
     }
 
     /**

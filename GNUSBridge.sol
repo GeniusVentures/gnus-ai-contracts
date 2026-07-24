@@ -26,7 +26,7 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
     uint8 public constant decimals = 18;
     /// @dev Fee denominator (thousandths). Bridge fee math: `amount * (1000 - fee) / 1000`.
     /// Cap is GNUSControl.MAX_FEE (200 = 20%).
-    uint256 private constant FEE_DOMINATOR = 1000;
+    uint256 private constant FEE_DENOMINATOR = 1000;
 
     /**
      * @notice Emitted when a token holder initiates a bridge to another chain.
@@ -77,7 +77,12 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
     function _mintWithBridgeFee(address user, uint256 tokenID, uint256 amount) internal {
         uint256 bridgeFee = GNUSControlStorage.layout().bridgeFee;
         if (bridgeFee != 0) {
-            amount = (amount * (FEE_DOMINATOR - bridgeFee)) / FEE_DOMINATOR;
+            // WR-04: defense-in-depth. updateBridgeFee in GNUSControl enforces
+            // newFee <= MAX_FEE (200), but if MAX_FEE is ever raised above
+            // FEE_DENOMINATOR, or storage is mis-initialized during an upgrade, the
+            // subtraction below would panic-revert with no message. Guard locally.
+            require(bridgeFee <= FEE_DENOMINATOR, "Bridge fee exceeds denominator");
+            amount = (amount * (FEE_DENOMINATOR - bridgeFee)) / FEE_DENOMINATOR;
         }
         _mint(user, tokenID, amount, "");
         emit Transfer(address(0), user, amount);
