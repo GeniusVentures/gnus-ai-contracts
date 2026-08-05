@@ -76,21 +76,23 @@ contract GNUSNFTFactory is Initializable, GNUSERC1155MaxSupply, GeniusAccessCont
 
     /// @notice Internal function to perform checks before minting an NFT.
     /// @dev This function ensures that the minting conditions are met.
+    ///      Phase 9 (D1/D6): `amount` is now MINIONS of GNUS, not child units.
+    ///      The caller pays exactly `amount` id-0 minions and the child supply
+    ///      increases by exactly `amount`. Depth is gated to direct children only;
+    ///      issuance deeper in the tree goes through `GNUSTreasury.convert`.
     /// @param to The address to mint the NFT to.
-    /// @param id The ID of the NFT.
+    /// @param id The ID of the NFT (must be a direct child of GNUS).
     /// @param nft The NFT storage object.
-    /// @param amount The amount of the NFT to mint.
+    /// @param amount The amount of id-0 minions to convert into child minions (1:1).
     function beforeMint(address to, uint256 id, NFT storage nft, uint256 amount) internal {
         address sender = _msgSender();
         require(id != GNUS_TOKEN_ID, "Shouldn't mint GNUS tokens tokens, only deposit and withdraw");
         require(to != address(0), "ERC1155: mint to the zero address");
         require(nft.nftCreated, "Cannot mint NFT that doesn't exist");
         require((sender == nft.creator) || hasRole(DEFAULT_ADMIN_ROLE, sender), "Creator or Admin can only mint NFT");
-        if ((id >> 128) == GNUS_TOKEN_ID) {
-            uint256 convAmount = amount * nft.exchangeRate;
-            require(balanceOf(sender, GNUS_TOKEN_ID) >= convAmount, "Not enough GNUS_TOKEN to burn");
-            _burn(sender, GNUS_TOKEN_ID, convAmount);
-        }
+        require((id >> 128) == GNUS_TOKEN_ID, "Direct children only; use convert() for descendants"); // D6 depth gate
+        require(balanceOf(sender, GNUS_TOKEN_ID) >= amount, "Not enough GNUS_TOKEN to convert");
+        _burn(sender, GNUS_TOKEN_ID, amount); // D1: 1:1 minion move; amount IS minions
     }
 
     /// @notice Mints a new NFT.
