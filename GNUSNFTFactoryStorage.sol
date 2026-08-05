@@ -11,11 +11,14 @@ struct NFT {
     string name;            ///< Token/NFT Name
     string symbol;          ///< Token/NFT Symbol
     string uri;             ///< Token/NFT URI for metadata
-    uint256 exchangeRate;   ///< Exchange rate for withdrawing to GNUS
-    uint256 maxSupply;      ///< Maximum supply of NFTs
+    uint256 exchangeRate;   ///< Display-only fixed-point rate: minions per 1 child unit, 1e18 scale (D2)
+    uint256 maxSupply;      ///< Maximum supply of NFTs (minion cap per research section C)
     address creator;        ///< The creator of the token
     uint128 childCurIndex;  ///< The current child NFT count created
     bool nftCreated;        ///< Indicates if the NFT has been created
+    // Phase 9 appends below - do not reorder, do not insert above this line
+    uint256 parentId;       ///< D7 - parent token ID; 0 = direct child of GNUS (zero-default correct for existing direct children)
+    bool nonConvertible;    ///< D5 - false (zero-default) = convertible, opt-out; true = burn-only (Phase 13 sets at creation)
 }
 
 /// @custom:security-contact support@gnus.ai
