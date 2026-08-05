@@ -145,4 +145,31 @@ contract GNUSTreasury is Initializable, GNUSERC1155MaxSupply, GeniusAccessContro
         require(l.provenanceInitialized, "Global supply not initialized");
         return l.globalSupply;
     }
+
+    /// @notice One-shot provenance initializer (D8).
+    /// @dev Seeds `globalSupply` for this chain. The seed is the current global GNUS figure at
+    ///      deploy time for this chain: the FIRST chain seeds 0 (or genesis); subsequent chains
+    ///      seed the then-current global figure from off-chain coordination. Guard is a one-shot
+    ///      bool, NOT a version compare (PATTERNS section 3) — re-seeding must be impossible
+    ///      because the seed is chain-specific.
+    /// @param seedGlobalSupply Initial value for `globalSupply` on this chain (minions).
+    function GNUSTreasury_Initialize300(uint256 seedGlobalSupply) external onlySuperAdminRole {
+        GNUSTreasuryStorage.Layout storage l = GNUSTreasuryStorage.layout();
+        require(!l.provenanceInitialized, "Already initialized");
+        l.globalSupply = seedGlobalSupply;
+        l.provenanceInitialized = true;
+        emit GlobalSupplyInitialized(seedGlobalSupply, _msgSender());
+    }
+
+    /// @notice Auditable honesty valve for cross-chain drift (D8).
+    /// @dev Every call emits GlobalSupplySynced — observers can reconcile off-chain. Routine
+    ///      paths should never need this; Phase 12 owns fuller reconciliation. Emits BEFORE
+    ///      the write so the event captures the old value.
+    /// @param newGlobal New value for `globalSupply` (minions, cumulative across all chains).
+    function syncGlobalSupply(uint256 newGlobal) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        GNUSTreasuryStorage.Layout storage l = GNUSTreasuryStorage.layout();
+        require(l.provenanceInitialized, "Not initialized");
+        emit GlobalSupplySynced(l.globalSupply, newGlobal, _msgSender());
+        l.globalSupply = newGlobal;
+    }
 }
