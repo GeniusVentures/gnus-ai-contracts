@@ -166,6 +166,7 @@ contract GNUSNFTFactory is Initializable, GNUSERC1155MaxSupply, GeniusAccessCont
                 require(exchRates[i] > 0, "Exchange Rate has to be > 0 for creating a new Child NFT of GNUS");
             }
             uint256 newTokenID = (parentID << 128) | nft.childCurIndex++;
+            require(!GNUSNFTFactoryStorage.layout().NFTs[newTokenID].nftCreated, "Token ID collision"); // D7
             GNUSNFTFactoryStorage.layout().NFTs[newTokenID] = NFT({
                 name: names[i],
                 symbol: symbols[i],
@@ -174,7 +175,9 @@ contract GNUSNFTFactory is Initializable, GNUSERC1155MaxSupply, GeniusAccessCont
                 uri: newuris[i],
                 creator: sender,
                 childCurIndex: 0,
-                nftCreated: true
+                nftCreated: true,
+                parentId: parentID,           // D7 - recorded, not derived
+                nonConvertible: false         // D5 - default convertible; Phase 13 sets true for burn-only tokens
             });
         }
         GNUSNFTFactoryStorage.layout().NFTs[parentID].childCurIndex = nft.childCurIndex;
