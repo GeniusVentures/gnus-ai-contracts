@@ -99,13 +99,15 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
     }
 
     /**
-     * @notice Mint ERC1155 tokens.
+     * @notice Mint GNUS ERC20 tokens via the 3-arg overload (MINTER_ROLE bridge-in path).
      * @param user Address receiving the minted tokens.
-     * @param tokenID Token ID to mint.
+     * @param tokenID Token ID to mint — MUST be GNUS_TOKEN_ID (0). Phase 9 D10: bridging a
+     * child token in is effected as a mint of id 0 followed by a `convert` via GNUSTreasury.
      * @param amount Amount of tokens to mint.
      * @dev Callable only by addresses with the `MINTER_ROLE`.
      */
     function mint(address user, uint256 tokenID, uint256 amount) public onlyRole(MINTER_ROLE) {
+        require(tokenID == GNUS_TOKEN_ID, "MINTER_ROLE mints GNUS only");
         _mintWithBridgeFee(user, tokenID, amount);
     }
 
@@ -152,42 +154,6 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
         emit TransferSingle(operator, address(0), to, id, amount);
 
         _afterTokenTransfer(operator, address(0), to, ids, amounts, data);
-    }
-
-    /**
-     * @notice Withdraw a child token to GNUS ERC20 on the current network.
-     * @param amount Amount of child tokens to withdraw.
-     * @param id Token ID being withdrawn.
-     */
-    function withdraw(uint256 amount, uint256 id) external {
-        address sender = _msgSender();
-        require(GNUSNFTFactoryStorage.layout().NFTs[id].nftCreated, "Token not created.");
-        require(id != GNUS_TOKEN_ID, "Cannot withdraw GNUS tokens.");
-        require(balanceOf(sender, id) >= amount, "Insufficient tokens.");
-
-        uint256 exchangeRate = GNUSNFTFactoryStorage.layout().NFTs[id].exchangeRate;
-        require(exchangeRate > 0, "Exchange rate must be greater than zero");
-        require(amount >= exchangeRate, "Amount must be at least the exchange rate");
-
-        // Exchange rate = NFTs per GNUS, so divide to get GNUS amount
-        uint256 convAmount = amount / exchangeRate;
-
-        // WR-07 one-charge invariant: the limiter is charged exactly once, HERE, for convAmount.
-        // The subsequent _burn(sender, id, amount) routes through _beforeTokenTransfer, but the hook
-        // only aggregates id == GNUS_TOKEN_ID (and id != GNUS_TOKEN_ID here, see require above), so it
-        // does NOT re-charge. The _mintWithBridgeFee(...) is a mint (isMinting == true), also skipped.
-        // If you change either gate you WILL double-limit users.
-        // Super admin bypasses limiter completely
-        if (LibDiamond.diamondStorage().contractOwner != sender) {
-            GNUSWithdrawLimiterStorage.checkAndRecordWithdraw(sender, convAmount);
-        } else {
-            emit GNUSWithdrawLimiterStorage.SuperAdminBypass(
-                sender, convAmount, "GNUSBridge.withdraw"
-            );
-        }
-
-        _burn(sender, id, amount);
-        _mintWithBridgeFee(sender, GNUS_TOKEN_ID, convAmount);
     }
 
     /**
