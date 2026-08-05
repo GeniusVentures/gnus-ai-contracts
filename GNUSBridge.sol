@@ -10,6 +10,7 @@ import "./GeniusAccessControl.sol";
 import "./GNUSConstants.sol";
 import "./GNUSControlStorage.sol";
 import "./GNUSWithdrawLimiterStorage.sol";
+import "./GNUSTreasuryStorage.sol";
 
 /// @title GNUSBridge
 /// @notice Manages bridging, minting, burning, and token transfers for the GNUS ecosystem.
@@ -19,6 +20,7 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
     using GNUSNFTFactoryStorage for GNUSNFTFactoryStorage.Layout;
     using ERC20Storage for ERC20Storage.Layout;
     using GNUSControlStorage for GNUSControlStorage.Layout;
+    using GNUSTreasuryStorage for GNUSTreasuryStorage.Layout;
 
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     string public constant name = "Genius Token & NFT Collections";
@@ -84,6 +86,15 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
             require(bridgeFee <= FEE_DENOMINATOR, "Bridge fee exceeds denominator");
             amount = (amount * (FEE_DENOMINATOR - bridgeFee)) / FEE_DENOMINATOR;
         }
+        // Phase 9 D8/D9: counter + global cap AFTER fee adjustment (post-fee amount is
+        // what enters existence). Cap fires only for GNUS_TOKEN_ID mints (root mint /
+        // bridge-in); convert's GNUS-terminal mint leg is NOT routed through here and
+        // is therefore NOT cap-checked (conversion conserves).
+        if (tokenID == GNUS_TOKEN_ID) {
+            GNUSTreasuryStorage.Layout storage t = GNUSTreasuryStorage.layout();
+            require(t.globalSupply + amount <= GNUS_MAX_SUPPLY, "Global max supply exceeded");
+            t.globalSupply += amount;
+        }
         _mint(user, tokenID, amount, "");
         emit Transfer(address(0), user, amount);
     }
@@ -119,6 +130,7 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
      */
     function burn(address user, uint256 amount) public onlyRole(MINTER_ROLE) {
         _burn(user, GNUS_TOKEN_ID, amount);
+        GNUSTreasuryStorage.layout().globalSupply -= amount;
         emit Transfer(user, address(0), amount);
     }
 
@@ -181,17 +193,17 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
         require(destChainID != GNUSControlStorage.layout().chainID, "Cannot bridge to same chain");
 
         // CR-03: child-token (id != GNUS_TOKEN_ID) bridging skips the limiter hook
-        // (the hook only aggregates GNUS_TOKEN_ID), so apply it explicitly here in
-        // GNUS-equivalent terms, mirroring withdraw(). GNUS bridging is already charged
-        // by the _burn hook, so it is excluded to avoid double-charging the user.
+        // (the hook only aggregates GNUS_TOKEN_ID), so apply it explicitly here.
+        // Phase 9 D1/D2: `amount` is already minion-denominated - charge directly,
+        // no rate division. GNUS bridging is already charged by the _burn
+        // hook, so it is excluded to avoid double-charging the user.
+        // B1 provenance: bridgeOut does NOT touch globalSupply - the destination
+        // chain's bridge-in mint is the + side.
         if (id != GNUS_TOKEN_ID) {
-            uint256 exchangeRate = GNUSNFTFactoryStorage.layout().NFTs[id].exchangeRate;
-            require(exchangeRate > 0, "Exchange rate must be greater than zero");
-            uint256 convAmount = amount / exchangeRate;
             if (LibDiamond.diamondStorage().contractOwner != sender) {
-                GNUSWithdrawLimiterStorage.checkAndRecordWithdraw(sender, convAmount);
+                GNUSWithdrawLimiterStorage.checkAndRecordWithdraw(sender, amount);
             } else {
-                emit GNUSWithdrawLimiterStorage.SuperAdminBypass(sender, convAmount, "GNUSBridge.bridgeOut");
+                emit GNUSWithdrawLimiterStorage.SuperAdminBypass(sender, amount, "GNUSBridge.bridgeOut");
             }
         }
 
