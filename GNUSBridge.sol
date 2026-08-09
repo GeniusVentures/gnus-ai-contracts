@@ -130,6 +130,7 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
      */
     function burn(address user, uint256 amount) public onlyRole(MINTER_ROLE) {
         _burn(user, GNUS_TOKEN_ID, amount);
+        require(GNUSTreasuryStorage.layout().globalSupply >= amount, "Burn exceeds global supply");
         GNUSTreasuryStorage.layout().globalSupply -= amount;
         emit Transfer(user, address(0), amount);
     }
