@@ -30,7 +30,7 @@ contract GNUSTreasury is Initializable, GNUSERC1155MaxSupply, GeniusAccessContro
     /// @param to Recipient of the minted leg.
     event Converted(uint256 indexed fromId, uint256 indexed toId, uint256 minionAmount, address indexed to);
 
-    /// @notice Emitted once by GNUSTreasury_Initialize300 to record the cross-chain provenance seed.
+    /// @notice Emitted once by GNUSTreasury_Initialize260 to record the cross-chain provenance seed.
     /// @param seedGlobalSupply Initial value of globalSupply (chain-specific; 0 for first chain).
     /// @param operator Address that invoked the initializer (always the super admin).
     event GlobalSupplyInitialized(uint256 seedGlobalSupply, address indexed operator);
@@ -153,7 +153,7 @@ contract GNUSTreasury is Initializable, GNUSERC1155MaxSupply, GeniusAccessContro
     ///      bool, NOT a version compare (PATTERNS section 3) — re-seeding must be impossible
     ///      because the seed is chain-specific.
     /// @param seedGlobalSupply Initial value for `globalSupply` on this chain (minions).
-    function GNUSTreasury_Initialize300(uint256 seedGlobalSupply) external onlySuperAdminRole {
+    function GNUSTreasury_Initialize260(uint256 seedGlobalSupply) external onlySuperAdminRole {
         GNUSTreasuryStorage.Layout storage l = GNUSTreasuryStorage.layout();
         require(!l.provenanceInitialized, "Already initialized");
         l.globalSupply = seedGlobalSupply;
