@@ -94,6 +94,7 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
             GNUSTreasuryStorage.Layout storage t = GNUSTreasuryStorage.layout();
             require(t.globalSupply + amount <= GNUS_MAX_SUPPLY, "Global max supply exceeded");
             t.globalSupply += amount;
+            t.chainSupply[block.chainid] += amount;
         }
         _mint(user, tokenID, amount, "");
         emit Transfer(address(0), user, amount);
@@ -130,8 +131,10 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
      */
     function burn(address user, uint256 amount) public onlyRole(MINTER_ROLE) {
         _burn(user, GNUS_TOKEN_ID, amount);
-        require(GNUSTreasuryStorage.layout().globalSupply >= amount, "Burn exceeds global supply");
-        GNUSTreasuryStorage.layout().globalSupply -= amount;
+        GNUSTreasuryStorage.Layout storage t = GNUSTreasuryStorage.layout();
+        require(t.globalSupply >= amount, "Burn exceeds global supply");
+        t.globalSupply -= amount;
+        t.chainSupply[block.chainid] -= amount;
         emit Transfer(user, address(0), amount);
     }
 
