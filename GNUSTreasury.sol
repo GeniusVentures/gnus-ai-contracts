@@ -30,16 +30,17 @@ contract GNUSTreasury is Initializable, GNUSERC1155MaxSupply, GeniusAccessContro
     /// @param to Recipient of the minted leg.
     event Converted(uint256 indexed fromId, uint256 indexed toId, uint256 minionAmount, address indexed to);
 
-    /// @notice Emitted once by GNUSTreasury_Initialize260 to record the cross-chain provenance seed.
-    /// @param seedGlobalSupply Initial value of globalSupply (chain-specific; 0 for first chain).
-    /// @param operator Address that invoked the initializer (always the super admin).
+    /// @notice Emitted once by GNUSTreasury_SetSeedSupply when the provenance seed is written.
+    /// @param seedGlobalSupply Initial value of this chain's supply (= totalSupply() at onboard; 0 on fresh chains).
+    /// @param operator Address that invoked the seeder (DEFAULT_ADMIN_ROLE holder).
     event GlobalSupplyInitialized(uint256 seedGlobalSupply, address indexed operator);
 
-    /// @notice Emitted every time syncGlobalSupply runs (D8 honesty valve; auditable).
-    /// @param oldGlobal Previous value of globalSupply.
-    /// @param newGlobal New value being written.
-    /// @param operator Address that invoked the sync (DEFAULT_ADMIN_ROLE holder).
-    event GlobalSupplySynced(uint256 oldGlobal, uint256 newGlobal, address indexed operator);
+    /// @notice Emitted every time setSisterChainSupply records a sister chain's supply (auditable).
+    /// @param chainId Sister chain id (never this chain's own id).
+    /// @param oldSupply Previously recorded supply for that chain (0 if first registration).
+    /// @param newSupply New recorded supply.
+    /// @param operator Address that invoked the update (DEFAULT_ADMIN_ROLE holder).
+    event SisterChainSupplyUpdated(uint256 indexed chainId, uint256 oldSupply, uint256 newSupply, address indexed operator);
 
     /// @inheritdoc ERC1155Upgradeable
     function supportsInterface(bytes4 interfaceId)
@@ -146,30 +147,63 @@ contract GNUSTreasury is Initializable, GNUSERC1155MaxSupply, GeniusAccessContro
         return l.globalSupply;
     }
 
-    /// @notice One-shot provenance initializer (D8).
-    /// @dev Seeds `globalSupply` for this chain. The seed is the current global GNUS figure at
-    ///      deploy time for this chain: the FIRST chain seeds 0 (or genesis); subsequent chains
-    ///      seed the then-current global figure from off-chain coordination. Guard is a one-shot
-    ///      bool, NOT a version compare (PATTERNS section 3) — re-seeding must be impossible
-    ///      because the seed is chain-specific.
-    /// @param seedGlobalSupply Initial value for `globalSupply` on this chain (minions).
-    function GNUSTreasury_Initialize260(uint256 seedGlobalSupply) external onlySuperAdminRole {
+    /// @notice Cut-safe provenance initializer (D8, per-chain model).
+    /// @dev Records this deployment's chain id. Runs inside the diamond cut, so it takes no
+    ///      arguments (the deployment tooling encodes protocol initializers with zero args).
+    ///      Does NOT flip provenanceInitialized and does NOT seed any supply — this chain's
+    ///      starting supply is written post-deploy by GNUSTreasury_SetSeedSupply, and sister
+    ///      chains are registered via setSisterChainSupply; only then does the provenance view
+    ///      go live.
+    function GNUSTreasury_Initialize260() external onlySuperAdminRole {
         GNUSTreasuryStorage.Layout storage l = GNUSTreasuryStorage.layout();
+        require(l.ownChainId == 0, "Chain id already recorded");
+        l.ownChainId = block.chainid;
+    }
+
+    /// @notice One-shot provenance seeder (D8). Post-deploy only.
+    /// @dev Writes THIS chain's starting supply — its totalSupply() of GNUS at onboard time,
+    ///      which is 0 on a fresh chain and the existing minted figure when retrofitting a live
+    ///      chain. globalSupply starts at the seed and grows as sister chains are registered
+    ///      via setSisterChainSupply. Flips provenanceInitialized, which unblocks
+    ///      totalSupplyOfAll(). One-shot: re-seeding must be impossible because the seed is
+    ///      chain-specific (PATTERNS section 3).
+    /// @param seedGlobalSupply This chain's starting supply (minions).
+    function GNUSTreasury_SetSeedSupply(uint256 seedGlobalSupply) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        GNUSTreasuryStorage.Layout storage l = GNUSTreasuryStorage.layout();
+        require(l.ownChainId != 0, "Chain id not recorded");
         require(!l.provenanceInitialized, "Already initialized");
+        l.chainSupply[l.ownChainId] = seedGlobalSupply;
         l.globalSupply = seedGlobalSupply;
         l.provenanceInitialized = true;
         emit GlobalSupplyInitialized(seedGlobalSupply, _msgSender());
     }
 
-    /// @notice Auditable honesty valve for cross-chain drift (D8).
-    /// @dev Every call emits GlobalSupplySynced — observers can reconcile off-chain. Routine
-    ///      paths should never need this; Phase 12 owns fuller reconciliation. Emits BEFORE
-    ///      the write so the event captures the old value.
-    /// @param newGlobal New value for `globalSupply` (minions, cumulative across all chains).
-    function syncGlobalSupply(uint256 newGlobal) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    /// @notice Record sister-chain supplies and adjust the aggregate by delta (D8 revision).
+    /// @dev Post-deploy onboarding path (one call per chain, or a batch — arrays of 1 are fine)
+    ///      and the reconciliation path after any out-of-band mint on a sister chain. Each
+    ///      entry replaces the recorded figure for that chain; globalSupply moves by the delta.
+    ///      This chain's own entry is maintained by the mint/burn paths and SetSeedSupply —
+    ///      passing ownChainId here is rejected.
+    /// @param chainIds Sister chain ids.
+    /// @param newSupplies New total supply for each chain (minions), parallel to chainIds.
+    function setSisterChainSupply(uint256[] calldata chainIds, uint256[] calldata newSupplies)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
         GNUSTreasuryStorage.Layout storage l = GNUSTreasuryStorage.layout();
         require(l.provenanceInitialized, "Not initialized");
-        emit GlobalSupplySynced(l.globalSupply, newGlobal, _msgSender());
-        l.globalSupply = newGlobal;
+        require(chainIds.length == newSupplies.length, "Array length mismatch");
+        for (uint256 i; i < chainIds.length; ) {
+            uint256 chainId = chainIds[i];
+            require(chainId != l.ownChainId, "Cannot set own chain supply");
+            uint256 oldSupply = l.chainSupply[chainId];
+            uint256 newSupply = newSupplies[i];
+            l.chainSupply[chainId] = newSupply;
+            l.globalSupply = l.globalSupply - oldSupply + newSupply;
+            emit SisterChainSupplyUpdated(chainId, oldSupply, newSupply, _msgSender());
+            unchecked {
+                ++i;
+            }
+        }
     }
 }

@@ -8,11 +8,15 @@ pragma solidity ^0.8.19;
 
 library GNUSTreasuryStorage {
     /// @notice Storage layout for the Treasury provenance counter.
-    /// @dev Field order per D8: globalSupply first (the counter), provenanceInitialized second (the guard).
-    ///      Do NOT reorder - Phase 13 will append after these fields.
+    /// @dev Field order per D8: globalSupply first (the counter), provenanceInitialized second
+    ///      (the guard). Do NOT reorder those two - Phase 13 will append after these fields.
+    ///      Per-chain redesign (Phase 9 revision): chainSupply + ownChainId appended after the
+    ///      original pair; existing slots are untouched.
     struct Layout {
         uint256 globalSupply;          ///< B1 provenance counter (minions) - cumulative minted supply across all chains
         bool provenanceInitialized;    ///< One-time initializer guard (D8: revert when uninitialized)
+        mapping(uint256 => uint256) chainSupply;  ///< Per-chain supply (minions); own chain keyed by ownChainId
+        uint256 ownChainId;            ///< block.chainid of this deployment, recorded by GNUSTreasury_Initialize260
     }
 
     /// @notice Storage position for the GNUS Treasury storage.
