@@ -4,6 +4,8 @@ pragma solidity ^0.8.19;
 import "@gnus.ai/contracts-upgradeable-diamond/proxy/utils/Initializable.sol";
 import "@gnus.ai/contracts-upgradeable-diamond/token/ERC20/IERC20Upgradeable.sol";
 import "@gnus.ai/contracts-upgradeable-diamond/token/ERC20/ERC20Storage.sol";
+import "@gnus.ai/contracts-upgradeable-diamond/utils/cryptography/ECDSAUpgradeable.sol";
+import "@gnus.ai/contracts-upgradeable-diamond/utils/cryptography/MerkleProofUpgradeable.sol";
 import "./GNUSERC1155MaxSupply.sol";
 import "./GNUSNFTFactoryStorage.sol";
 import "./GeniusAccessControl.sol";
@@ -11,6 +13,7 @@ import "./GNUSConstants.sol";
 import "./GNUSControlStorage.sol";
 import "./GNUSWithdrawLimiterStorage.sol";
 import "./GNUSTreasuryStorage.sol";
+import "./GNUSBridgeValidatorStorage.sol";
 
 /// @title GNUSBridge
 /// @notice Manages bridging, minting, burning, and token transfers for the GNUS ecosystem.
@@ -51,6 +54,38 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
         uint256 destChainID,
         bytes32 sgnsDestination,
         bool destinationYOdd
+    );
+
+    /**
+     * @notice Emitted when a bridge-in certificate is verified and tokens are released to the recipient.
+     * @param transferId Source-chain burn transaction hash (free-form bytes32, replay-protection key).
+     * @param recipient Address receiving the minted tokens.
+     * @param amount PRE-FEE amount of tokens bridged in (matches BridgeOutInitiated semantics).
+     * The recipient actually receives `amount` less the bridge fee.
+     * @param srcChainID Chain ID the bridge-out was initiated on.
+     * @param destChainID Chain ID the bridge-in was executed on (== block.chainid).
+     * @dev Emitted after `_mintWithBridgeFee` succeeds; CEI ordering — `processedMessages[transferId]`
+     * is set BEFORE the mint so reentrancy cannot replay.
+     */
+    event BridgeReleased(
+        bytes32 indexed transferId,
+        address indexed recipient,
+        uint256 amount,
+        uint256 srcChainID,
+        uint256 destChainID
+    );
+
+    /**
+     * @notice Emitted when the Super Admin rotates the validator set.
+     * @param oldRoot Previous validator merkle root (bytes32(0) if never configured).
+     * @param newRoot New validator merkle root.
+     * @param newThreshold New m-of-n signature threshold.
+     * @dev Emitted BEFORE the write so the event captures the OLD root.
+     */
+    event ValidatorSetUpdated(
+        bytes32 indexed oldRoot,
+        bytes32 indexed newRoot,
+        uint256 newThreshold
     );
 
     /**
@@ -221,6 +256,146 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
             sgnsDestination,
             destinationYOdd
         );
+    }
+
+    /**
+     * @notice Computes the EIP-191-wrapped digest that SG validators sign for a bridge-in.
+     * @param transferId Source-chain burn transaction hash (replay-protection key).
+     * @param srcChainID Chain ID the bridge-out was initiated on.
+     * @param recipient Address receiving the minted tokens.
+     * @param amount PRE-FEE amount of tokens to bridge in.
+     * @return The EIP-191 message hash validators signed.
+     * @dev Field order and types are load-bearing per CONTEXT D-08/D-10. `block.chainid` binds
+     * the destination chain (cross-chain replay protection); `address(this)` binds the diamond
+     * (cross-diamond replay protection). Wrapped with `toEthSignedMessageHash` per
+     * 10-RESEARCH.md §Alternatives (EIP-191 chosen for wallet compatibility).
+     */
+    function _bridgeInDigest(
+        bytes32 transferId,
+        uint256 srcChainID,
+        address recipient,
+        uint256 amount
+    ) internal view returns (bytes32) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                transferId,
+                srcChainID,
+                block.chainid,
+                address(this),
+                recipient,
+                GNUS_TOKEN_ID,
+                amount
+            )
+        );
+        return ECDSAUpgradeable.toEthSignedMessageHash(structHash);
+    }
+
+    /**
+     * @notice Verifies a threshold ECDSA certificate against the committed validator merkle root.
+     * @param digest EIP-191-wrapped digest (output of `_bridgeInDigest`).
+     * @param signatures Array of validator signatures over `digest`.
+     * @param merkleProofs Parallel array of merkle proofs, one per signature, proving the
+     * recovered signer is a member of `validatorMerkleRoot`.
+     * @return validCount Number of valid signatures verified.
+     * @dev Implements 10-RESEARCH.md §Pattern 2. Enforces:
+     *  - `signatures.length == merkleProofs.length`
+     *  - `validatorThreshold > 0` (Pitfall 7: unconfigured validator set must reject, not accept)
+     *  - `signatures.length >= validatorThreshold` (D-12)
+     *  - Recovered signers are strictly ascending (D-13 duplicate protection)
+     *  - Each signer is a registered validator via merkle membership (D-15)
+     *  - Leaf is `keccak256(abi.encodePacked(signer))` — 20-byte packed encoding per Pitfall 3
+     *    (NOT `abi.encode` which pads to 32).
+     */
+    function _verifyThresholdCertificate(
+        bytes32 digest,
+        bytes[] calldata signatures,
+        bytes32[][] calldata merkleProofs
+    ) internal view returns (uint256 validCount) {
+        require(signatures.length == merkleProofs.length, "Sig/proof length mismatch");
+        GNUSBridgeValidatorStorage.Layout storage v = GNUSBridgeValidatorStorage.layout();
+        require(v.validatorThreshold > 0, "Validator set not configured");
+        require(signatures.length >= v.validatorThreshold, "Below threshold");
+
+        address lastSigner = address(0);
+        for (uint256 i = 0; i < signatures.length; ++i) {
+            (address signer, ECDSAUpgradeable.RecoverError err) = ECDSAUpgradeable.tryRecover(
+                digest,
+                signatures[i]
+            );
+            require(err == ECDSAUpgradeable.RecoverError.NoError, "Bad signature");
+            require(signer > lastSigner, "Signers not strictly ascending");
+            lastSigner = signer;
+            bytes32 leaf = keccak256(abi.encodePacked(signer));
+            require(
+                MerkleProofUpgradeable.verify(merkleProofs[i], v.validatorMerkleRoot, leaf),
+                "Not a registered validator"
+            );
+            unchecked {
+                ++validCount;
+            }
+        }
+    }
+
+    /**
+     * @notice Executes a destination-chain bridge release against a threshold validator certificate.
+     * @param transferId Source-chain burn transaction hash (free-form bytes32; replay-protection key).
+     * @param srcChainID Chain ID the bridge-out was initiated on.
+     * @param recipient Address receiving the minted tokens.
+     * @param amount PRE-FEE amount of tokens to bridge in. Bridge fee is applied inside
+     * `_mintWithBridgeFee`; recipient receives `amount - fee`.
+     * @param signatures Validator signatures over the EIP-191 digest (strictly ascending by
+     * recovered address).
+     * @param merkleProofs Parallel merkle proofs, one per signature.
+     * @dev Permissionless — authorization is the certificate itself, not the caller (D-09).
+     * Body ordering is load-bearing for security:
+     *  1. Pause check FIRST (D-20/D-21, Pitfall 4)
+     *  2. Replay / chain / recipient / amount sanity checks (D-07, D-08)
+     *  3. Threshold certificate verification (D-12, D-13, D-15)
+     *  4. Mark `processedMessages[transferId] = true` BEFORE the mint (CEI, Pitfall 2, T-10-12)
+     *  5. Mint via `_mintWithBridgeFee` so bridge fee, global cap, and chainSupply apply (D-22)
+     * `GNUS_TOKEN_ID` is hardcoded (D-14) — child-token bridge-in is mint-of-id-0 followed by
+     * `convert` via GNUSTreasury.
+     */
+    function bridgeIn(
+        bytes32 transferId,
+        uint256 srcChainID,
+        address recipient,
+        uint256 amount,
+        bytes[] calldata signatures,
+        bytes32[][] calldata merkleProofs
+    ) external {
+        require(!GNUSControlStorage.layout().paused, "GNUSControl: contract paused");
+        GNUSBridgeValidatorStorage.Layout storage v = GNUSBridgeValidatorStorage.layout();
+        require(!v.processedMessages[transferId], "Message already processed");
+        require(block.chainid == GNUSControlStorage.layout().chainID, "Wrong destination chain");
+        require(srcChainID != block.chainid, "Cannot bridge from same chain");
+        require(recipient != address(0), "Invalid recipient");
+        require(amount > 0, "Invalid amount");
+
+        bytes32 digest = _bridgeInDigest(transferId, srcChainID, recipient, amount);
+        _verifyThresholdCertificate(digest, signatures, merkleProofs);
+
+        v.processedMessages[transferId] = true;
+        _mintWithBridgeFee(recipient, GNUS_TOKEN_ID, amount);
+        emit BridgeReleased(transferId, recipient, amount, srcChainID, block.chainid);
+    }
+
+    /**
+     * @notice Rotates the validator set committed on-chain.
+     * @param newRoot New merkle root of authorized validator addresses.
+     * @param newThreshold New m-of-n signature threshold (must be > 0).
+     * @dev Callable only by the Super Admin multisig (D-18). Emits `ValidatorSetUpdated` BEFORE
+     * the write so the event captures the OLD root. Old root becomes invalid immediately —
+     * in-flight certificates signed against the old root will fail verification (T-10-13
+     * accepted risk; D-05 allows re-signing).
+     */
+    function setValidatorSet(bytes32 newRoot, uint256 newThreshold) external onlySuperAdminRole {
+        require(newRoot != bytes32(0), "Invalid root");
+        require(newThreshold > 0, "Invalid threshold");
+        GNUSBridgeValidatorStorage.Layout storage v = GNUSBridgeValidatorStorage.layout();
+        emit ValidatorSetUpdated(v.validatorMerkleRoot, newRoot, newThreshold);
+        v.validatorMerkleRoot = newRoot;
+        v.validatorThreshold = newThreshold;
     }
 
     /**
