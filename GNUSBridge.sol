@@ -120,6 +120,10 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
             // subtraction below would panic-revert with no message. Guard locally.
             require(bridgeFee <= FEE_DENOMINATOR, "Bridge fee exceeds denominator");
             amount = (amount * (FEE_DENOMINATOR - bridgeFee)) / FEE_DENOMINATOR;
+            // WR-02: post-fee guard. A pre-fee amount that floors to zero after the fee
+            // would otherwise mint nothing while the source-chain burn is final. Revert
+            // so the certificate can be re-submitted after a fee change.
+            require(amount > 0, "Bridge fee consumes entire amount");
         }
         // Phase 9 D8/D9: counter + global cap AFTER fee adjustment (post-fee amount is
         // what enters existence). Cap fires only for GNUS_TOKEN_ID mints (root mint /
