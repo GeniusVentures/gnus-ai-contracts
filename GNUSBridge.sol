@@ -79,12 +79,16 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
      * @notice Emitted when the Super Admin rotates the validator set.
      * @param oldRoot Previous validator merkle root (bytes32(0) if never configured).
      * @param newRoot New validator merkle root.
+     * @param oldThreshold Previous m-of-n signature threshold (0 if never configured).
      * @param newThreshold New m-of-n signature threshold.
-     * @dev Emitted BEFORE the write so the event captures the OLD root.
+     * @dev Old values are read into locals, then written, then the event is emitted
+     * (conventional emit-after-write ordering) so off-chain monitors can reconstruct
+     * the full (root, threshold) transition.
      */
     event ValidatorSetUpdated(
         bytes32 indexed oldRoot,
         bytes32 indexed newRoot,
+        uint256 oldThreshold,
         uint256 newThreshold
     );
 
@@ -388,18 +392,21 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
      * @notice Rotates the validator set committed on-chain.
      * @param newRoot New merkle root of authorized validator addresses.
      * @param newThreshold New m-of-n signature threshold (must be > 0).
-     * @dev Callable only by the Super Admin multisig (D-18). Emits `ValidatorSetUpdated` BEFORE
-     * the write so the event captures the OLD root. Old root becomes invalid immediately —
-     * in-flight certificates signed against the old root will fail verification (T-10-13
-     * accepted risk; D-05 allows re-signing).
+     * @dev Callable only by the Super Admin multisig (D-18). Old root/threshold are read
+     * into locals, the new values are written, then `ValidatorSetUpdated` is emitted
+     * (emit-after-write). Old root becomes invalid immediately — in-flight certificates
+     * signed against the old root will fail verification (T-10-13 accepted risk; D-05
+     * allows re-signing).
      */
     function setValidatorSet(bytes32 newRoot, uint256 newThreshold) external onlySuperAdminRole {
         require(newRoot != bytes32(0), "Invalid root");
         require(newThreshold > 0, "Invalid threshold");
         GNUSBridgeValidatorStorage.Layout storage v = GNUSBridgeValidatorStorage.layout();
-        emit ValidatorSetUpdated(v.validatorMerkleRoot, newRoot, newThreshold);
+        bytes32 oldRoot = v.validatorMerkleRoot;
+        uint256 oldThreshold = v.validatorThreshold;
         v.validatorMerkleRoot = newRoot;
         v.validatorThreshold = newThreshold;
+        emit ValidatorSetUpdated(oldRoot, newRoot, oldThreshold, newThreshold);
     }
 
     /**
