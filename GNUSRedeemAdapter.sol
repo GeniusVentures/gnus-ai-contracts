@@ -91,6 +91,14 @@ contract GNUSRedeemAdapter is Initializable, GNUSERC1155MaxSupply, GeniusAccessC
         require(childNft.nftCreated, "Token not created.");
         require(!childNft.nonConvertible, "Token is non-convertible");
 
+        // Operator-approval gate: the internal _safeTransferFrom has no approval check
+        // (it lives only in the public safeTransferFrom), so enforce it here. `from` must
+        // be the caller or have approved the diamond as ERC-1155 operator.
+        require(
+            from == caller || isApprovedForAll(from, address(this)),
+            "ERC1155: caller is not token owner or approved"
+        );
+
         // WR-07 GNUS-terminal limiter charge keyed to `from` (the user), NOT the diamond/proxy.
         // Replaces the charge GNUSTreasury.convert would apply to _msgSender(). The mint leg
         // below is hook-exempt from the limiter, so this is the only charge (no double-charge).
