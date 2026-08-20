@@ -93,12 +93,15 @@ contract GNUSRedeemAdapter is Initializable, GNUSERC1155MaxSupply, GeniusAccessC
 
     /// @notice Redeem `amount` of child token `childId` held by `from` for GNUS minted to `recipient`.
     /// @dev Caller (msg.sender) is typically an external ERC-20 proxy contract; `from` is the end
-    ///      user. `from` must have ERC-1155-approved this diamond as operator
-    ///      (`setApprovalForAll(diamond, true)`, one-time). Atomic: pull + burn + mint happen in
-    ///      this transaction; the diamond never holds child tokens across transactions. Conversion
-    ///      is 1:1 minion-denominated (Phase 9 D2). CEI ordering: limiter charge -> pull -> burn
-    ///      -> mint -> event (T-11-01).
-    /// @param from The token holder whose child balance is debited (must have approved the diamond as ERC-1155 operator).
+    ///      user. Two gates (Codex P1, PR #75): (1) AUTHORIZATION — `from` must be the caller or
+    ///      have operator-approved the caller (`setApprovalForAll(proxy, true)`), so approval of
+    ///      the diamond alone never authorizes an arbitrary third party to redeem a holder's
+    ///      balance; (2) TRANSFER — `from` must have ERC-1155-approved this diamond as operator
+    ///      (`setApprovalForAll(diamond, true)`, one-time), the mechanism for the pull below.
+    ///      Atomic: pull + burn + mint happen in this transaction; the diamond never holds child
+    ///      tokens across transactions. Conversion is 1:1 minion-denominated (Phase 9 D2). CEI
+    ///      ordering: limiter charge -> pull -> burn -> mint -> event (T-11-01).
+    /// @param from The token holder whose child balance is debited (must have approved the caller AND the diamond as ERC-1155 operators).
     /// @param childId Child token id (must not be GNUS_TOKEN_ID, must be created, must be convertible).
     /// @param amount Minion amount (1:1 to GNUS per Phase 9 D2).
     /// @param recipient Recipient of the minted GNUS.
@@ -114,9 +117,22 @@ contract GNUSRedeemAdapter is Initializable, GNUSERC1155MaxSupply, GeniusAccessC
         require(childNft.nftCreated, "Token not created.");
         require(!childNft.nonConvertible, "Token is non-convertible");
 
-        // Operator-approval gate: the internal _safeTransferFrom has no approval check
-        // (it lives only in the public safeTransferFrom), so enforce it here. `from` must
-        // be the caller or have approved the diamond as ERC-1155 operator.
+        // Authorization gate (Codex P1, PR #75): approval of the diamond is the TRANSFER
+        // mechanism for the pull below — it is NOT authorization for any arbitrary caller to
+        // redeem on `from`'s behalf. Without this check, once `from` grants the diamond
+        // operator approval (required for redeem), anyone could call redeem(victim, …,
+        // attacker) and drain the victim's approved balance. Bind authorization to the
+        // actual caller: `from` must BE the caller or have operator-approved the caller
+        // (the ERC-20 proxy contract). The allowance chain is then user → approves proxy →
+        // proxy forwards `from` — and the proxy's own ERC-20 allowance logic (PROXY-01)
+        // governs the spend.
+        require(
+            from == caller || isApprovedForAll(from, caller),
+            "GNUSRedeemAdapter: caller not authorized by token holder"
+        );
+
+        // Transfer gate: the internal _safeTransferFrom has no approval check (it lives
+        // only in the public safeTransferFrom), so enforce it here for the pull leg.
         require(
             from == caller || isApprovedForAll(from, address(this)),
             "ERC1155: caller is not token owner or approved"
