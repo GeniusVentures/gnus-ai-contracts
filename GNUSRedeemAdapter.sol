@@ -47,12 +47,35 @@ contract GNUSRedeemAdapter is Initializable, GNUSERC1155MaxSupply, GeniusAccessC
             (LibDiamond.diamondStorage().supportedInterfaces[interfaceId] == true));
     }
 
-    /// @notice Accepts ERC-1155 self-transfers into the diamond during redeem.
-    /// @dev Always returns the magic selector; the adapter's redeem function pulls tokens into
-    ///      address(this) atomically before burning them, so custody never persists across
-    ///      transactions. Stateless and pure — enables only the self-transfer redeem initiates.
-    function onERC1155Received(address, address, uint256, uint256, bytes calldata) external pure override returns (bytes4) {
+    /// @notice Accepts ERC-1155 transfers into the diamond ONLY while a redeem is in progress.
+    /// @dev Gated on a transient "redeem in progress" flag (dedicated diamond-storage slot,
+    ///      WR-01): the flag is set immediately before redeem's `_safeTransferFrom` and cleared
+    ///      immediately after (a revert mid-reem auto-clears via refund, and the explicit clear
+    ///      covers success). Direct user transfers into the diamond still revert at the hook,
+    ///      preserving the pre-facet revert-on-direct-transfer posture (Phase 10 no-custody
+    ///      model). Reads storage, so `view` rather than `pure`.
+    function onERC1155Received(address, address, uint256, uint256, bytes calldata) external view override returns (bytes4) {
+        require(msg.sender == address(this) && _redeemInProgress(), "GNUSRedeemAdapter: unexpected transfer");
         return IERC1155ReceiverUpgradeable.onERC1155Received.selector;
+    }
+
+    /// @notice Dedicated diamond-storage slot for the redeem-in-progress flag (append-only layout).
+    bytes32 private constant REDEEM_IN_PROGRESS_SLOT = keccak256("gnus.ai.redeem.adapter.storage");
+
+    /// @notice Reads the redeem-in-progress flag.
+    function _redeemInProgress() private view returns (bool flag) {
+        bytes32 slot = REDEEM_IN_PROGRESS_SLOT;
+        assembly {
+            flag := sload(slot)
+        }
+    }
+
+    /// @notice Writes the redeem-in-progress flag.
+    function _setRedeemInProgress(bool value) private {
+        bytes32 slot = REDEEM_IN_PROGRESS_SLOT;
+        assembly {
+            sstore(slot, value)
+        }
     }
 
     /// @notice Rejects batch transfers — the adapter never sends batches to itself.
@@ -102,13 +125,18 @@ contract GNUSRedeemAdapter is Initializable, GNUSERC1155MaxSupply, GeniusAccessC
         // WR-07 GNUS-terminal limiter charge keyed to `from` (the user), NOT the diamond/proxy.
         // Replaces the charge GNUSTreasury.convert would apply to _msgSender(). The mint leg
         // below is hook-exempt from the limiter, so this is the only charge (no double-charge).
+        // NOTE: the super-admin bypass below is keyed to `from`, not to the caller (differs
+        // from GNUSTreasury.convert, which keys to `sender`); the actual caller identity is
+        // captured in the RedeemedViaAdapter event for auditability.
         if (LibDiamond.diamondStorage().contractOwner != from) {
             GNUSWithdrawLimiterStorage.checkAndRecordWithdraw(from, amount);
         } else {
             emit GNUSWithdrawLimiterStorage.SuperAdminBypass(from, amount, "GNUSRedeemAdapter.redeem");
         }
 
+        _setRedeemInProgress(true);
         _safeTransferFrom(from, address(this), childId, amount, "");
+        _setRedeemInProgress(false);
         _burn(address(this), childId, amount);
         _mint(recipient, GNUS_TOKEN_ID, amount, "");
 
