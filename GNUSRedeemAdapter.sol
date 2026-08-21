@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "@gnus.ai/contracts-upgradeable-diamond/proxy/utils/Initializable.sol";
 import "@gnus.ai/contracts-upgradeable-diamond/token/ERC1155/IERC1155ReceiverUpgradeable.sol";
+import "@gnus.ai/contracts-upgradeable-diamond/token/ERC1155/ERC1155Storage.sol";
 import "./GNUSERC1155MaxSupply.sol";
 import "./GeniusAccessControl.sol";
 import "./GNUSConstants.sol";
@@ -21,7 +21,7 @@ import "contracts-starter/contracts/libraries/LibDiamond.sol";
 ///      charge is keyed to the caller. Conversion is 1:1 minion-denominated (Phase 9 D2);
 ///      the diamond never holds child tokens across transactions (Phase 10 no-custody model).
 /// @custom:security-contact support@gnus.ai
-contract GNUSRedeemAdapter is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl, IERC1155ReceiverUpgradeable {
+contract GNUSRedeemAdapter is GNUSERC1155MaxSupply, GeniusAccessControl, IERC1155ReceiverUpgradeable {
     /// @notice Emitted when a redemption completes.
     /// @param from The holder whose child balance was burned (always `_msgSender()`).
     /// @param childId Child token id burned.
@@ -29,6 +29,9 @@ contract GNUSRedeemAdapter is Initializable, GNUSERC1155MaxSupply, GeniusAccessC
     event Redeemed(address indexed from, uint256 indexed childId, uint256 amount);
 
     /// @inheritdoc ERC1155Upgradeable
+    /// @dev IERC1155ReceiverUpgradeable is advertised so an inbound safeTransfer reverts
+    ///      with this facet's reason string instead of the generic "transfer to
+    ///      non-ERC1155Receiver implementer" from the base safeTransferFrom.
     function supportsInterface(bytes4 interfaceId)
         public
         view
@@ -63,12 +66,38 @@ contract GNUSRedeemAdapter is Initializable, GNUSERC1155MaxSupply, GeniusAccessC
         revert("GNUSRedeemAdapter: batch transfers not accepted");
     }
 
+    /// @dev Mirrors GNUSBridge._mint: no receiver acceptance check, so contract
+    ///      holders (Safes, smart wallets, ERC-20 proxies) can redeem. Burn+mint
+    ///      state is final before any external interaction; the only external call
+    ///      eliminated is the recipient hook on the caller itself (CR-01).
+    function _mint(
+        address to,
+        uint256 id,
+        uint256 amount,
+        bytes memory data
+    ) internal override(ERC1155Upgradeable) {
+        require(to != address(0), "ERC1155: mint to the zero address");
+
+        address operator = _msgSender();
+        uint256[] memory ids = asSingletonArray(id);
+        uint256[] memory amounts = asSingletonArray(amount);
+
+        _beforeTokenTransfer(operator, address(0), to, ids, amounts, data);
+
+        ERC1155Storage.layout()._balances[id][to] += amount;
+        emit TransferSingle(operator, address(0), to, id, amount);
+
+        _afterTokenTransfer(operator, address(0), to, ids, amounts, data);
+    }
+
     /// @notice Redeem `amount` of the caller's child token `childId` for GNUS minted to the caller.
     /// @dev Caller (`_msgSender()`) is the token holder and the GNUS recipient. Atomic
     ///      supply-neutral reallocation: `_burn(caller, childId, amount)` +
     ///      `_mint(caller, GNUS_TOKEN_ID, amount)` in one transaction. Conversion is 1:1
     ///      minion-denominated (Phase 9 D2). CEI ordering: limiter charge -> burn -> mint ->
     ///      event (T-11-01). No operator approval is required — the caller IS the holder.
+    ///      The mint leg uses the hook-free `_mint` override below (GNUSBridge convention),
+    ///      so contract callers (Safes, smart wallets, ERC-20 proxies) can redeem.
     /// @param childId Child token id (must not be GNUS_TOKEN_ID, must be created, must be convertible).
     /// @param amount Minion amount (1:1 to GNUS per Phase 9 D2).
     function redeem(uint256 childId, uint256 amount) external {
