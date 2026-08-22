@@ -342,4 +342,186 @@ contract GNUSLifecycle is GNUSERC1155MaxSupply, GeniusAccessControl {
 
         GNUSLifecycleStorage.layout().allowlistRegistry[id] = registry;
     }
+
+    /// @notice Internal expiry predicate (D2).
+    /// @dev Returns true when the (account, id) pair is past its expiration point under the
+    ///      token's expirationMode:
+    ///        - None       → false (never expires)
+    ///        - PerTokenId → validUntil != 0 && block.timestamp >= validUntil (shared window)
+    ///        - PerHolder  → holderExpiresAt[id][account] != 0 && block.timestamp >= expiry
+    ///      A PerHolder clock of 0 is treated as "not expired" — never minted to this holder,
+    ///      or already settled.
+    /// @param account The holder being checked.
+    /// @param id Token id.
+    /// @param nft The NFT storage record.
+    /// @return True when the (account, id) pair is expired.
+    function _isExpired(address account, uint256 id, NFT storage nft) internal view returns (bool) {
+        if (nft.expirationMode == uint8(ExpirationMode.None)) {
+            return false;
+        }
+        if (nft.expirationMode == uint8(ExpirationMode.PerTokenId)) {
+            return nft.validUntil != 0 && block.timestamp >= nft.validUntil;
+        }
+        // PerHolder
+        uint64 expiry = GNUSLifecycleStorage.layout().holderExpiresAt[id][account];
+        return expiry != 0 && block.timestamp >= expiry;
+    }
+
+    /// @notice Permissionless settlement of an expired (account, id) balance (D9).
+    /// @dev Fixed-outcome: the caller cannot redirect value — disposition and recipient are
+    ///      read from the immutable NFT config. Caller triggers the transition only.
+    ///      Reverts when the pair is not expired (locked discretion; re-entry after a settle
+    ///      that cleared the clock/balance will hit this "Not expired" revert, which is the
+    ///      documented idempotency shape — second call reverts cleanly with no state change).
+    ///
+    ///      Zero-balance early return: when balanceOf(account, id) == 0 the function returns
+    ///      without emitting — no burn/transfer/event for an empty pile (D9 idempotency).
+    ///
+    ///      CEI ordering (Pitfall P5 / T-13-02-04): for PerHolder mode, the per-holder clock
+    ///      is cleared BEFORE any _burn/_safeTransferFrom so a re-entrant call from a
+    ///      recipient hook sees a cleared clock and cannot double-settle.
+    ///
+    ///      No unbounded loops (D9): settles exactly one (account, id) pair per call.
+    ///
+    ///      Dispositions (D8):
+    ///        NONE              → emit only; balance untouched, entitlement off
+    ///        KEEP_INERT        → emit only; balance stays (collectible), entitlement off
+    ///        BURN              → _burn(account, id, balance); AI Credits path (D11)
+    ///        RETURN_TO_ADDRESS → _safeTransferFrom to nft.expirationRecipient (fixed, D8)
+    ///        REDEEM_TO_PARENT  → _settleRedeemToParent(account, id, nft.parentId, balance) (Q3)
+    /// @param account The holder whose expired balance is being settled.
+    /// @param id Token id.
+    function settleExpired(address account, uint256 id) external {
+        NFT storage nft = GNUSNFTFactoryStorage.layout().NFTs[id];
+        require(nft.nftCreated, "Token not created");
+        require(_isExpired(account, id, nft), "Not expired");
+
+        uint256 balance = balanceOf(account, id);
+        if (balance == 0) {
+            // D9 idempotency: nothing to settle on an empty pile.
+            return;
+        }
+
+        // CEI: clear the per-holder clock BEFORE any state transition / external call.
+        GNUSLifecycleStorage.Layout storage lc = GNUSLifecycleStorage.layout();
+        if (nft.expirationMode == uint8(ExpirationMode.PerHolder)) {
+            lc.holderExpiresAt[id][account] = 0;
+        }
+
+        _dispatchSettlement(account, id, balance, nft);
+    }
+
+    /// @notice Shared disposition dispatch used by settleExpired and _applyPerHolderRenewal.
+    /// @dev Single source of truth for the five-disposition routing (13-RESEARCH §P5:
+    ///      "single biggest risk is introducing a parallel enforcement path that drifts").
+    ///      Caller must have already cleared any per-holder clock (CEI).
+    /// @param account The holder whose expired balance is being settled.
+    /// @param id Token id.
+    /// @param balance Pre-read balanceOf(account, id) — the full expired pile to settle.
+    /// @param nft The NFT storage record (disposition + recipient read from immutable config).
+    function _dispatchSettlement(address account, uint256 id, uint256 balance, NFT storage nft) internal {
+        if (nft.expirationDisposition == uint8(ExpirationDisposition.NONE)) {
+            // Balance untouched, entitlement off. No state transition.
+            emit Settled(account, id, 0, ExpirationDisposition.NONE, address(0));
+            return;
+        }
+        if (nft.expirationDisposition == uint8(ExpirationDisposition.KEEP_INERT)) {
+            // Balance stays (collectible), entitlement off.
+            emit Settled(account, id, 0, ExpirationDisposition.KEEP_INERT, address(0));
+            return;
+        }
+        if (nft.expirationDisposition == uint8(ExpirationDisposition.BURN)) {
+            // Expired units destroyed, no value returned. AI Credits path (D11).
+            _burn(account, id, balance);
+            emit Settled(account, id, balance, ExpirationDisposition.BURN, address(0));
+            return;
+        }
+        if (nft.expirationDisposition == uint8(ExpirationDisposition.RETURN_TO_ADDRESS)) {
+            // Fixed recipient only (D8). Never an inferred sender, never caller-supplied (P9).
+            address recipient = nft.expirationRecipient;
+            require(recipient != address(0), "No expiration recipient configured");
+            _safeTransferFrom(account, recipient, id, balance, "");
+            emit Settled(account, id, balance, ExpirationDisposition.RETURN_TO_ADDRESS, recipient);
+            return;
+        }
+        if (nft.expirationDisposition == uint8(ExpirationDisposition.REDEEM_TO_PARENT)) {
+            // Q3 no-custody settle pair — see _settleRedeemToParent.
+            uint256 parentId = nft.parentId; // Phase 9 D7 field (recorded at creation)
+            _settleRedeemToParent(account, id, parentId, balance);
+            emit Settled(account, id, balance, ExpirationDisposition.REDEEM_TO_PARENT, account);
+            return;
+        }
+    }
+
+    /// @notice Q3 no-custody settlement into the direct parent token.
+    /// @dev Direct `_burn(account, id, amount)` + `_mint(account, parentId, amount, "")` pair —
+    ///      tokens never touch the diamond contract address (Phase 10 no-custody invariant,
+    ///      GNUSRedeemAdapter.redeem precedent at lines 121-122). Supply-neutral reallocation:
+    ///      minions are conserved across the burn/mint pair (Phase 9 D1 1:1 model).
+    ///      Does NOT call GNUSTreasury.convert — convert burns from _msgSender() and would
+    ///      target the permissionless caller, not `account`.
+    /// @param account The holder whose expired child balance is burned and re-minted as parent.
+    /// @param id Expired child token id.
+    /// @param parentId Direct parent token id (NFT.parentId, Phase 9 D7).
+    /// @param amount Minion amount to move 1:1 child → parent.
+    function _settleRedeemToParent(address account, uint256 id, uint256 parentId, uint256 amount) internal {
+        require(parentId != id, "Invalid parent");
+        _burn(account, id, amount);
+        _mint(account, parentId, amount, "");
+    }
+
+    /// @notice D3 settle-first per-holder renewal helper.
+    /// @dev MUST be called by GNUSNFTFactory.beforeMint (plan 13-03) BEFORE _mint executes —
+    ///      this function reads `balanceOf(holder, id)` as the PRE-MINT balance. If called
+    ///      after _mint, the just-minted amount would be incorrectly included in the
+    ///      expired-pile check and would be burned by the settle (Pitfall P5).
+    ///
+    ///      D3 semantics:
+    ///        - Active balance (balance > 0 && existing > block.timestamp): stack — extend
+    ///          the existing clock by nft.defaultDuration. The new purchase APPENDS time.
+    ///        - Expired with pre-existing balance: settle the pre-existing pile FIRST via
+    ///          _dispatchSettlement (the incoming mint is not part of that pile — it has not
+    ///          been minted yet), then start a fresh clock at now + defaultDuration. Expired
+    ///          balances are NEVER resurrected.
+    ///        - Zero balance or no prior clock: start a fresh clock at now + defaultDuration.
+    ///
+    ///      Emits HolderExpiryUpdated with the old and new clock values.
+    ///
+    ///      Non-PerHolder tokens: early return — no clock is maintained for None or
+    ///      PerTokenId modes.
+    /// @param holder The recipient of the upcoming mint (the wallet whose clock is updated).
+    /// @param id Token id.
+    function _applyPerHolderRenewal(address holder, uint256 id) internal {
+        NFT storage nft = GNUSNFTFactoryStorage.layout().NFTs[id];
+        if (nft.expirationMode != uint8(ExpirationMode.PerHolder)) {
+            return;
+        }
+
+        GNUSLifecycleStorage.Layout storage lc = GNUSLifecycleStorage.layout();
+        uint64 existing = lc.holderExpiresAt[id][holder];
+        // PRE-MINT balance (this function runs BEFORE _mint — see Doxygen above).
+        uint256 balance = balanceOf(holder, id);
+
+        uint64 oldExpiry = existing;
+        uint64 newExpiry;
+
+        if (balance > 0 && existing > block.timestamp) {
+            // Active balance: extend the existing clock (D3 first branch).
+            newExpiry = existing + nft.defaultDuration;
+            lc.holderExpiresAt[id][holder] = newExpiry;
+        } else {
+            // Expired or zero balance: settle expired pre-existing balance FIRST (D3 second
+            // branch), then start a new clock from now. The settle uses `balance` (pre-mint)
+            // directly — the incoming mint amount is NOT part of the expired pile.
+            if (existing != 0 && existing <= block.timestamp && balance > 0) {
+                // CEI: clear the clock before the disposition transition.
+                lc.holderExpiresAt[id][holder] = 0;
+                _dispatchSettlement(holder, id, balance, nft);
+            }
+            newExpiry = uint64(block.timestamp) + nft.defaultDuration;
+            lc.holderExpiresAt[id][holder] = newExpiry;
+        }
+
+        emit HolderExpiryUpdated(id, holder, oldExpiry, newExpiry);
+    }
 }
