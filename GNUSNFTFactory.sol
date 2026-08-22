@@ -179,7 +179,16 @@ contract GNUSNFTFactory is Initializable, GNUSERC1155MaxSupply, GeniusAccessCont
                 childCurIndex: 0,
                 nftCreated: true,
                 parentId: parentID,           // D7 - recorded, not derived
-                nonConvertible: false         // D5 - default convertible; Phase 13 sets true for burn-only tokens
+                nonConvertible: false,        // D5 - default convertible; Phase 13 sets true for burn-only tokens
+                // Phase 13 lifecycle defaults (D1) - zero-default preserves legacy behavior
+                validFrom: 0,                 // active immediately
+                validUntil: 0,                // no per-ID expiry
+                defaultDuration: 0,           // PerHolder unset
+                expirationMode: 0,            // ExpirationMode.None
+                transferPolicy: 0,            // TransferPolicy.UNRESTRICTED
+                expirationDisposition: 0,     // ExpirationDisposition.NONE
+                expirationRecipient: address(0),
+                credentialVerifier: address(0)
             });
         }
         GNUSNFTFactoryStorage.layout().NFTs[parentID].childCurIndex = nft.childCurIndex;
