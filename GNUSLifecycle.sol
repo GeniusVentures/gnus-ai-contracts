@@ -176,6 +176,13 @@ contract GNUSLifecycle is GNUSERC1155MaxSupply, GeniusAccessControl {
             "Policy immutable after first mint"
         );
 
+        // WR-01 (13 review): enum-ordinal range validation. Downstream consumers dispatch with
+        // == equality and silently fall through on out-of-range ordinals (an invalid policy
+        // behaves like UNRESTRICTED, an invalid mode like PerHolder). Reject at the entry point.
+        require(cfg.expirationMode <= uint8(ExpirationMode.PerHolder), "Invalid expirationMode");
+        require(cfg.transferPolicy <= uint8(TransferPolicy.LOCKED_AFTER_START), "Invalid transferPolicy");
+        require(cfg.expirationDisposition <= uint8(ExpirationDisposition.REDEEM_TO_PARENT), "Invalid disposition");
+
         // Q2: PerHolder + transferable policy combination is forbidden (D2).
         if (cfg.expirationMode == uint8(ExpirationMode.PerHolder)) {
             require(
@@ -335,6 +342,11 @@ contract GNUSLifecycle is GNUSERC1155MaxSupply, GeniusAccessControl {
             require(fstore.NFTs[parentID].nftCreated, "Parent NFT Should have been created already");
             require(sender == fstore.NFTs[parentID].creator, "Only parent creator can create child NFTs");
         }
+
+        // WR-01 (13 review): enum-ordinal range validation — same gates as configureLifecycle.
+        require(cfg.expirationMode <= uint8(ExpirationMode.PerHolder), "Invalid expirationMode");
+        require(cfg.transferPolicy <= uint8(TransferPolicy.LOCKED_AFTER_START), "Invalid transferPolicy");
+        require(cfg.expirationDisposition <= uint8(ExpirationDisposition.REDEEM_TO_PARENT), "Invalid disposition");
 
         // Q2: PerHolder + transferable policy combination is forbidden (D2).
         if (cfg.expirationMode == uint8(ExpirationMode.PerHolder)) {
