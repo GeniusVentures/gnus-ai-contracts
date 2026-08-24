@@ -32,8 +32,9 @@ import "contracts-starter/contracts/libraries/LibDiamond.sol";
 ///        - settleExpired is permissionless but fixed-outcome (D9) — no recipient parameter,
 ///          no caller-controlled value flow, disposition read from immutable config.
 ///        - mintWithCredential is the ONLY credential-gated issuance path. Legacy `mint` /
-///          `mintBatch` on GNUSNFTFactory do NOT enforce the per-wallet cap or credential —
-///          configured tokens are expected to use mintWithCredential (documented limitation).
+///          `mintBatch` on GNUSNFTFactory do NOT enforce the credential verifier — the
+///          per-wallet cap, validFrom window, and PerTokenId sale-end ARE enforced on both
+///          paths via the shared hook (GNUSLifecyclePolicy.enforceMintGate).
 ///        - CEI ordering (T-13-03-01): the per-wallet cap EFFECT is written BEFORE the external
 ///          ICredentialVerifier call; the per-holder clock is cleared BEFORE any burn/transfer.
 ///
@@ -310,8 +311,18 @@ contract GNUSLifecycleMint is GNUSERC1155MaxSupply, GeniusAccessControl {
     /// @param amount Minion amount to move 1:1 child → parent.
     function _settleRedeemToParent(address account, uint256 id, uint256 parentId, uint256 amount) internal {
         require(parentId != id, "Invalid parent");
+        // WR-04 (13 review): the parent-mint leg below runs the shared hook's mint gate
+        // (max-supply + sale window + per-wallet cap). Redemption of expired, already-
+        // collateralized child funds must NOT be blockable by the parent's sale window or
+        // consume the holder's per-wallet cap on the parent — so set the transient carve-out
+        // flag (read by GNUSLifecyclePolicy.enforceMintGate / the predicate's mint branch)
+        // around this single internal _mint. The parent max-supply check still applies inside
+        // the gate (hard supply invariant, same posture as GNUSRedeemAdapter.redeem). The flag
+        // is cleared on the way out; a reverting mint unwinds storage, so it never sticks.
+        GNUSLifecycleStorage.layout().settleRedeemMintActive = true;
         _burn(account, id, amount);
         _mint(account, parentId, amount, "");
+        GNUSLifecycleStorage.layout().settleRedeemMintActive = false;
     }
 
     /// @notice Internal expiry predicate (D2).

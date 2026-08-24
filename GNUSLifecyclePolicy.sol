@@ -68,10 +68,30 @@ library GNUSLifecyclePolicy {
         // Sale-window gate on the mint path (13-03 REPLAN ADDENDUM). Load-bearing on the LEGACY
         // factory mint/mintBatch path (the mint facet has its own "Sale not started" check in
         // _checkMintPolicy; this is the hook-level defense-in-depth AND the legacy-path gate).
+        // WR-04 (13 review): REDEEM_TO_PARENT settlement carve-out. The parent-mint leg of
+        // GNUSLifecycleMint._settleRedeemToParent routes through _mint → this gate; redemption
+        // of expired child funds must NOT be blockable by the parent's sale window
+        // (validFrom/validUntil) or consume the holder's per-wallet mint cap on the parent —
+        // it is a redemption of already-collateralized value, not fresh issuance. The
+        // max-supply check above still applies (hard supply invariant; same posture as
+        // GNUSRedeemAdapter.redeem, whose GNUS mint leg also runs this gate). The transient
+        // flag is set ONLY around that single internal _mint.
+        if (GNUSLifecycleStorage.layout().settleRedeemMintActive) {
+            return;
+        }
+
         require(
             nftMint.validFrom == 0 || block.timestamp >= nftMint.validFrom,
             "Token not yet active"
         );
+
+        // WR-02 (13 review): PerTokenId sale-end gate, symmetric with
+        // GNUSLifecycleMint._checkMintPolicy. The hook is the single window authority — the
+        // LEGACY factory mint/mintBatch path (which does not run _checkMintPolicy) must not be
+        // able to mint tokens after the sale window / after the token class expired.
+        if (nftMint.expirationMode == uint8(ExpirationMode.PerTokenId)) {
+            require(nftMint.validUntil == 0 || block.timestamp < nftMint.validUntil, "Sale ended");
+        }
 
         // Per-wallet mint cap CHECK-AND-INCREMENT (CEI). Cap of 0 = uncapped (zero-default
         // preserves legacy behavior).
@@ -150,10 +170,15 @@ library GNUSLifecyclePolicy {
             // policies. The hook's mint branch already gates validFrom unconditionally (the
             // load-bearing legacy-path gate); this is the policy-predicate-level check per the
             // Pattern 4 skeleton. Minting is then permitted.
-            require(
-                nft.validFrom == 0 || block.timestamp >= nft.validFrom,
-                "Token not yet active"
-            );
+            // WR-04 (13 review): the REDEEM_TO_PARENT settlement parent-mint leg is exempt from
+            // this window check (redemption of expired funds must not be blockable by the
+            // parent's sale window) — see GNUSLifecycleMint._settleRedeemToParent.
+            if (!GNUSLifecycleStorage.layout().settleRedeemMintActive) {
+                require(
+                    nft.validFrom == 0 || block.timestamp >= nft.validFrom,
+                    "Token not yet active"
+                );
+            }
             return;
         }
         if (to == address(0)) {
@@ -166,6 +191,11 @@ library GNUSLifecyclePolicy {
         if (nft.transferPolicy == uint8(TransferPolicy.SOULBOUND)) {
             // D5: SOULBOUND permits fixed-recipient returns (RETURN_TO_ADDRESS settlement)
             // and narrowly approved issuer corrections under creator/admin authority.
+            // ACCEPTED RISK (13 review IN-01, D5 carve-out): this early return is NOT scoped to
+            // the settlement flow — the recipient address is a PERMANENT TRANSFER SINK every
+            // holder may voluntarily exit to at any time, pre-expiry. expirationRecipient must
+            // therefore be a contract that safely handles unsolicited transfers (issuer refund
+            // processor, not a hot EOA).
             if (to == nft.expirationRecipient) {
                 // Settlement path — settleExpired routes through _safeTransferFrom with
                 // to == expirationRecipient. Permitted.
@@ -181,6 +211,15 @@ library GNUSLifecyclePolicy {
         }
 
         if (nft.transferPolicy == uint8(TransferPolicy.ISSUER_ONLY)) {
+            // WR-03 (13 review): settlement carve-out mirroring the SOULBOUND fixed-recipient
+            // return above (D6 lists "to == fixed recipient" as a general system carve-out).
+            // RETURN_TO_ADDRESS settlement routes through _safeTransferFrom with
+            // to == nft.expirationRecipient and operator == the (permissionless, D9)
+            // settleExpired caller — without this carve-out a third-party settle would revert
+            // and the expired pile would be stuck until the creator/admin happens to call.
+            if (to == nft.expirationRecipient) {
+                return;
+            }
             // Only creator or DEFAULT_ADMIN_ROLE can move. DEFAULT_ADMIN_ROLE == bytes32(0).
             require(
                 operator == nft.creator || AccessControlStorage.layout()._roles[bytes32(0)].members[operator],

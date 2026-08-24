@@ -18,6 +18,12 @@ library GNUSLifecycleStorage {
         mapping(uint256 => uint256) perWalletMintCap;
         // Allowlist registry hook (D5 ALLOWLISTED)
         mapping(uint256 => address) allowlistRegistry;
+        // WR-04 (13 review): transient flag set ONLY around the parent-mint leg of
+        // GNUSLifecycleMint._settleRedeemToParent. Read by GNUSLifecyclePolicy.enforceMintGate /
+        // enforceTransferPolicy to exempt that single redemption mint from the parent's sale
+        // window and per-wallet cap (redemption of expired funds is not fresh issuance).
+        // Always false outside that internal call window; append-only (Phase 14+ appends after).
+        bool settleRedeemMintActive;
     }
 
     /// @notice Storage position for the GNUS Lifecycle storage.
