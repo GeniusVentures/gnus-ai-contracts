@@ -179,6 +179,7 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
         _burn(user, GNUS_TOKEN_ID, amount);
         GNUSTreasuryStorage.Layout storage t = GNUSTreasuryStorage.layout();
         require(t.globalSupply >= amount, "Burn exceeds global supply");
+        require(t.chainSupply[block.chainid] >= amount, "Burn exceeds chain supply");
         t.globalSupply -= amount;
         t.chainSupply[block.chainid] -= amount;
         emit Transfer(user, address(0), amount);
