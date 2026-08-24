@@ -37,12 +37,22 @@ import "contracts-starter/contracts/libraries/LibDiamond.sol";
 ///        - CEI ordering (T-13-03-01): the per-wallet cap EFFECT is written BEFORE the external
 ///          ICredentialVerifier call; the per-holder clock is cleared BEFORE any burn/transfer.
 ///
-///      CAP-INCREMENT LOCATION (note for plan 13-04): the per-wallet cap CHECK-AND-INCREMENT
-///      currently lives HERE, inside `_checkMintPolicy` (CEI). The `_beforeTokenTransfer` mint
-///      branch does NOT yet increment the cap — that legacy-path hook gate is plan 13-04's scope.
-///      When 13-04 adds a hook increment for the LEGACY mint path, the two MUST be reconciled so
-///      the cap is not double-counted on the lifecycle mint path (which funnels through _mint and
-///      would then also hit the hook). Until 13-04 lands, this facet is the single cap writer.
+///      CAP-INCREMENT LOCATION (13-03 REPLAN ADDENDUM, locked 2026-08-23): the per-wallet cap
+///      CHECK-AND-INCREMENT lives ONCE, in `GNUSERC1155MaxSupply._beforeTokenTransfer` (the mint
+///      branch) — the SINGLE write point for mintedPerWallet across the whole codebase. This
+///      facet's `_checkMintPolicy` does NOT write the cap (its increment was dropped when the
+///      hook gate landed, so the lifecycle mint path — which funnels through `_mint` → the hook —
+///      is not double-counted). `_checkMintPolicy` keeps only the sale-window check and the
+///      credential-verifier call. The hook fires inline on every mint on BOTH the legacy factory
+///      path and this facet's mint path (no delegatecall, no cross-facet call — the same
+///      mechanism as the existing max-supply check and the withdraw-limiter charge).
+///
+///      Ordering note (accepted by user, 13-03 REPLAN ADDENDUM): the cap increment now lands
+///      inside `_mint`'s hook (step 5 of mintWithCredential), which is AFTER the credential
+///      `view` call (step 2). This is safe because `ICredentialVerifier.verify` is `view`
+///      (STATICCALL) and cannot reenter-with-effect; the mock's `reenterMint` is a separate
+///      non-view driver. Strict "cap-before-credential" ordering is traded away for a single
+///      write point — accepted.
 /// @custom:security-contact support@gnus.ai
 contract GNUSLifecycleMint is GNUSERC1155MaxSupply, GeniusAccessControl {
     /// @notice Checks if the contract supports a specific interface.
@@ -79,15 +89,18 @@ contract GNUSLifecycleMint is GNUSERC1155MaxSupply, GeniusAccessControl {
     );
 
     /// @notice Mints a new NFT with an explicit credential for the token's credentialVerifier.
-    /// @dev Phase 13 (D10) credential-gated mint path. Body order (locked, plan 13-03):
+    /// @dev Phase 13 (D10) credential-gated mint path. Body order (locked, plan 13-03; cap
+    ///      reconciliation per 13-03 REPLAN ADDENDUM):
     ///        (1) base mint requires (id != GNUS, to != 0, created, creator/admin, direct-child,
     ///            sufficient GNUS) — mirrors GNUSNFTFactory.beforeMint's 6 requires;
-    ///        (2) _checkMintPolicy — sale window + per-wallet cap (CEI) + credential verifier;
+    ///        (2) _checkMintPolicy — sale window + credential verifier (cap NOT here — see below);
     ///        (3) _applyPerHolderRenewal — D3 settle-first renewal, PRE-MINT (Pitfall P5);
     ///        (4) _burn(sender, GNUS_TOKEN_ID, amount) — the caller pays id-0 minions 1:1;
-    ///        (5) _mint(to, id, amount, data).
+    ///        (5) _mint(to, id, amount, data) — fires the _beforeTokenTransfer hook, which applies
+    ///            the per-wallet cap CHECK-AND-INCREMENT (single write point, 13-03 REPLAN
+    ///            ADDENDUM) and the validFrom mint gate.
     ///      For tokens with no verifier configured (credentialVerifier == 0) the credential is
-    ///      ignored and minting is open (window + cap still enforced).
+    ///      ignored and minting is open (window + cap still enforced — the cap by the hook).
     /// @param to The address to mint the NFT to.
     /// @param id The ID of the NFT (must be a direct child of GNUS).
     /// @param amount The amount of id-0 minions to convert into child minions (1:1).
@@ -113,19 +126,24 @@ contract GNUSLifecycleMint is GNUSERC1155MaxSupply, GeniusAccessControl {
         _mint(to, id, amount, data);
     }
 
-    /// @notice Phase 13 mint-policy gate: sale window, per-wallet cap (CEI), credential verifier.
+    /// @notice Phase 13 mint-policy gate: sale window + credential verifier.
     /// @dev Internal — callable only from this facet's mint path (attack surface closed).
-    ///      Ordering (T-13-03-01 CEI):
+    ///      Ordering:
     ///        1. Sale window: validFrom gate; PerTokenId validUntil as the sale end.
-    ///        2. Per-wallet cap: mintedPerWallet[id][to] EFFECT updated BEFORE the external call.
-    ///        3. Credential verifier: the ONLY external interaction, performed LAST.
+    ///        2. Credential verifier: the ONLY external interaction, performed LAST.
     ///      For tokens with zero-default lifecycle fields every gate is a no-op (legacy behavior).
-    ///      CAP-INCREMENT LOCATION: this is currently the SINGLE cap writer (see contract-level
-    ///      note). The `_beforeTokenTransfer` mint branch does not yet increment — plan 13-04
-    ///      owns the legacy-path hook increment and must reconcile to avoid double-counting.
-    /// @param to The mint recipient (per-wallet cap is keyed by recipient, A7).
+    ///
+    ///      CAP-INCREMENT LOCATION (13-03 REPLAN ADDENDUM, locked 2026-08-23): this function
+    ///      does NOT write the per-wallet cap. The cap CHECK-AND-INCREMENT lives ONCE, in
+    ///      `GNUSERC1155MaxSupply._beforeTokenTransfer` (the mint branch) — the SINGLE write
+    ///      point. This facet's mint path calls `_mint` (step 5 of mintWithCredential), which
+    ///      fires the hook inline and applies the cap CEI there. Keeping a second increment here
+    ///      would double-count on the lifecycle path. The cap logic (including any read-only
+    ///      defensive assert) is intentionally DROPPED from this function — the hook is the sole
+    ///      owner. See the contract-level CAP-INCREMENT LOCATION paragraph.
+    /// @param to The mint recipient (per-wallet cap is keyed by recipient, A7 — enforced in the hook).
     /// @param id The token id being minted.
-    /// @param amount The minion amount being minted.
+    /// @param amount The minion amount being minted (cap arithmetic lives in the hook).
     /// @param credential Opaque credential forwarded to the verifier (empty = open mint).
     function _checkMintPolicy(address to, uint256 id, uint256 amount, bytes memory credential) internal {
         NFT storage nft = GNUSNFTFactoryStorage.layout().NFTs[id];
@@ -136,16 +154,9 @@ contract GNUSLifecycleMint is GNUSERC1155MaxSupply, GeniusAccessControl {
             require(nft.validUntil == 0 || block.timestamp < nft.validUntil, "Sale ended");
         }
 
-        // (2) Per-wallet mint cap — EFFECT before INTERACTION (D10 CEI).
-        GNUSLifecycleStorage.Layout storage lc = GNUSLifecycleStorage.layout();
-        uint256 cap = lc.perWalletMintCap[id];
-        if (cap != 0) {
-            uint256 newTotal = lc.mintedPerWallet[id][to] + amount;
-            require(newTotal <= cap, "Per-wallet mint cap exceeded");
-            lc.mintedPerWallet[id][to] = newTotal;
-        }
-
-        // (3) Credential verifier — LAST (only external interaction).
+        // (2) Credential verifier — the ONLY external interaction, performed LAST.
+        //      The per-wallet cap is enforced by the hook on _mint (single write point) — NOT
+        //      here. See the Doxygen CAP-INCREMENT LOCATION paragraph above.
         if (nft.credentialVerifier != address(0)) {
             require(
                 ICredentialVerifier(nft.credentialVerifier).verify(to, id, amount, credential),
