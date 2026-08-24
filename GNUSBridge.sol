@@ -14,6 +14,9 @@ import "./GNUSControlStorage.sol";
 import "./GNUSWithdrawLimiterStorage.sol";
 import "./GNUSTreasuryStorage.sol";
 import "./GNUSBridgeValidatorStorage.sol";
+import "./GNUSLifecycleStorage.sol";
+import "./GNUSLifecycleTypes.sol";
+import "./interfaces/IAllowlistRegistry.sol";
 
 /// @title GNUSBridge
 /// @notice Manages bridging, minting, burning, and token transfers for the GNUS ecosystem.
@@ -239,6 +242,13 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
 
         require(destChainID != GNUSControlStorage.layout().chainID, "Cannot bridge to same chain");
 
+        // Phase 13 D7 (13-06): bridging IS a transfer. The policy check MUST run here,
+        // BEFORE the limiter charge and the _burn — the subsequent _burn fires
+        // _beforeTokenTransfer, whose burn carve-out (to == 0) would otherwise permit
+        // the bridge burn (the hook cannot distinguish "burn for bridge" from "burn for
+        // spend/settle" — 13-RESEARCH Pattern 5 / Pitfall P3).
+        _enforceBridgePolicy(sender, id);
+
         // CR-03: child-token (id != GNUS_TOKEN_ID) bridging skips the limiter hook
         // (the hook only aggregates GNUS_TOKEN_ID), so apply it explicitly here.
         // Phase 9 D1/D2: `amount` is already minion-denominated - charge directly,
@@ -264,6 +274,60 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
             sgnsDestination,
             destinationYOdd
         );
+    }
+
+    /**
+     * @notice Phase 13 D7 bridge transfer-policy gate (SC4).
+     * @dev Bridging IS a transfer — policy-bound tokens are non-bridgeable in v1. Called from
+     *      bridgeOut BEFORE the limiter charge and the _burn so a policy-bound revert consumes
+     *      no withdrawal-limiter allowance and changes no state. Behavior per policy
+     *      (GNUSLifecycleTypes.TransferPolicy):
+     *        GNUS_TOKEN_ID      → return (GNUS always bridges; also the predicate's carve-out).
+     *        UNRESTRICTED       → return (zero-default legacy behavior).
+     *        ALLOWLISTED        → registry configured + isAllowed(SENDER).
+     *        LOCKED_AFTER_START → return only pre-start (validFrom == 0 or now < validFrom);
+     *                             revert at/after start (mirrors the transfer predicate).
+     *        SOULBOUND / ISSUER_ONLY / CONTROLLED_RESALE → revert (blocked in v1, D7).
+     *
+     *      Q4 v1 SIMPLIFICATION: the ALLOWLISTED bridge check targets the SENDER (the bridge
+     *      initiator on this source chain), NOT the cross-chain destination — a cross-chain
+     *      destination registry is not expressible without a cross-chain registry. v2 scope.
+     *
+     *      Implemented inline (not by calling GNUSLifecyclePolicy.enforceTransferPolicy) because
+     *      the bridge semantics differ from the holder-to-holder predicate: the burn carve-out
+     *      (to == 0) would permit the bridge burn, and ALLOWLISTED checks the sender here, not
+     *      the destination.
+     * @param sender The bridge initiator (source-chain holder).
+     * @param id The token id being bridged.
+     */
+    function _enforceBridgePolicy(address sender, uint256 id) internal view {
+        NFT storage nft = GNUSNFTFactoryStorage.layout().NFTs[id];
+        if (id == GNUS_TOKEN_ID) {
+            return; // GNUS itself is always UNRESTRICTED
+        }
+        if (nft.transferPolicy == uint8(TransferPolicy.UNRESTRICTED)) {
+            return; // zero-default preserves legacy behavior
+        }
+        if (nft.transferPolicy == uint8(TransferPolicy.ALLOWLISTED)) {
+            // Q4 v1: registry checks the SENDER (source-chain bridge initiator).
+            address registry = GNUSLifecycleStorage.layout().allowlistRegistry[id];
+            require(registry != address(0), "ALLOWLISTED: no registry configured");
+            require(
+                IAllowlistRegistry(registry).isAllowed(sender),
+                "ALLOWLISTED: bridge initiator not allowed"
+            );
+            return;
+        }
+        if (nft.transferPolicy == uint8(TransferPolicy.LOCKED_AFTER_START)) {
+            // Pre-start bridges are allowed (matching the transfer predicate's pre-start
+            // pass); the lock engages at validFrom.
+            if (nft.validFrom == 0 || block.timestamp < nft.validFrom) {
+                return;
+            }
+            revert("Policy-bound token cannot bridge in v1");
+        }
+        // SOULBOUND, ISSUER_ONLY, CONTROLLED_RESALE: non-bridgeable in v1 (D7).
+        revert("Policy-bound token cannot bridge in v1");
     }
 
     /**
