@@ -3,8 +3,12 @@ pragma solidity ^0.8.19;
 
 /// @title ICredentialVerifier
 /// @notice Generic credential verifier plug-in interface for Phase 13 anti-scalping.
-/// @dev Called from GNUSNFTFactory.beforeMint AFTER per-wallet cap update (CEI ordering).
-///      Implementations may use EIP-712 vouchers, merkle allowlists, or identity providers.
+/// @dev Called from GNUSLifecycleMint._checkMintPolicy (the mintWithCredential path) as a
+///      `view` call BEFORE the per-wallet cap write, which happens later inside `_mint`'s
+///      hook (GNUSLifecyclePolicy.enforceMintGate — accepted 13-03 addendum trade-off: the
+///      view call cannot reenter-with-effect, traded for a single cap write point).
+///      GNUSNFTFactory.beforeMint never calls the verifier. Implementations may use EIP-712
+///      vouchers, merkle allowlists, or identity providers.
 ///      The diamond does NOT verify signatures itself — creators bring their own verifier.
 interface ICredentialVerifier {
     /// @notice Verify a credential for a mint.

@@ -20,14 +20,17 @@ struct NFT {
     uint256 parentId;       ///< D7 - parent token ID; 0 = direct child of GNUS (zero-default correct for existing direct children)
     bool nonConvertible;    ///< D5 - false (zero-default) = convertible, opt-out; true = burn-only (Phase 13 sets at creation)
     // Phase 13 appends below - do not reorder, do not insert above this line
-    uint64  validFrom;             ///< D1 - sale/window start (slot +9 bytes 0-7); 0 = active immediately
-    uint64  validUntil;            ///< D1 - per-ID expiry timestamp (slot +9 bytes 8-15); 0 = no expiry (used in PerTokenId mode)
-    uint64  defaultDuration;       ///< D1 - purchase duration for PerHolder mode (slot +9 bytes 16-23); 0 = unset
-    uint8   expirationMode;        ///< D1 - ExpirationMode enum ordinal (slot +10 byte 0); 0 = None
-    uint8   transferPolicy;        ///< D1 - TransferPolicy enum ordinal (slot +10 byte 1); 0 = UNRESTRICTED
-    uint8   expirationDisposition; ///< D1 - ExpirationDisposition enum ordinal (slot +10 byte 2); 0 = NONE
-    address expirationRecipient;   ///< D1 - destination for RETURN_TO_ADDRESS (slot +10 bytes 3-22); 0x0 = unset
-    address credentialVerifier;    ///< D1 - ICredentialVerifier plug-in (slot +11 bytes 0-19); 0x0 = no credential required to mint
+    // Slot annotations verified by storage probe in GNUSLifecycleUpgrade.test.ts (IN-04, 13 review):
+    // nonConvertible (1B) + 3x uint64 (24B) + 3x uint8 (3B) = 28B pack into slot +8;
+    // the two addresses occupy full slots +9 and +10.
+    uint64  validFrom;             ///< D1 - sale/window start (slot +8 bytes 1-8, packed after nonConvertible); 0 = active immediately
+    uint64  validUntil;            ///< D1 - per-ID expiry timestamp (slot +8 bytes 9-16); 0 = no expiry (used in PerTokenId mode)
+    uint64  defaultDuration;       ///< D1 - purchase duration for PerHolder mode (slot +8 bytes 17-24); 0 = unset
+    uint8   expirationMode;        ///< D1 - ExpirationMode enum ordinal (slot +8 byte 25); 0 = None
+    uint8   transferPolicy;        ///< D1 - TransferPolicy enum ordinal (slot +8 byte 26); 0 = UNRESTRICTED
+    uint8   expirationDisposition; ///< D1 - ExpirationDisposition enum ordinal (slot +8 byte 27); 0 = NONE
+    address expirationRecipient;   ///< D1 - destination for RETURN_TO_ADDRESS (slot +9 bytes 0-19); 0x0 = unset
+    address credentialVerifier;    ///< D1 - ICredentialVerifier plug-in (slot +10 bytes 0-19); 0x0 = no credential required to mint
 }
 
 /// @custom:security-contact support@gnus.ai
