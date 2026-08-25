@@ -190,6 +190,16 @@ contract GNUSLifecycle is GNUSERC1155MaxSupply, GeniusAccessControl {
                 cfg.transferPolicy == uint8(TransferPolicy.ISSUER_ONLY),
                 "PerHolder requires non-transferable policy"
             );
+            // Codex P1 (PR #77): PerHolder + NONE/KEEP_INERT would let a renewal mint
+            // re-activate the whole expired pile (settlement is balance-neutral for those
+            // dispositions, then the fresh clock covers the old balance). Require a
+            // balance-removing disposition so "expired balances are never resurrected" (D3)
+            // holds for every PerHolder configuration.
+            require(
+                cfg.expirationDisposition != uint8(ExpirationDisposition.NONE) &&
+                cfg.expirationDisposition != uint8(ExpirationDisposition.KEEP_INERT),
+                "PerHolder requires balance-removing disposition"
+            );
         }
 
         // Q1: REDEEM_TO_PARENT only on convertible (collateralized) tokens (D8).
@@ -354,6 +364,13 @@ contract GNUSLifecycle is GNUSERC1155MaxSupply, GeniusAccessControl {
                 cfg.transferPolicy == uint8(TransferPolicy.SOULBOUND) ||
                 cfg.transferPolicy == uint8(TransferPolicy.ISSUER_ONLY),
                 "PerHolder requires non-transferable policy"
+            );
+            // Codex P1 (PR #77): same balance-removing-disposition gate as
+            // configureLifecycle — a renewal mint must never re-activate an expired pile.
+            require(
+                cfg.expirationDisposition != uint8(ExpirationDisposition.NONE) &&
+                cfg.expirationDisposition != uint8(ExpirationDisposition.KEEP_INERT),
+                "PerHolder requires balance-removing disposition"
             );
         }
         // D8: RETURN_TO_ADDRESS requires a configured non-zero recipient.
