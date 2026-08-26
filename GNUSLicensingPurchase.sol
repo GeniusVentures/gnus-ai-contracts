@@ -70,6 +70,7 @@ contract GNUSLicensingPurchase is GNUSERC1155MaxSupply, GeniusAccessControl, IGN
     string private constant _ERR_SKU_INACTIVE = "SKU inactive";
     string private constant _ERR_NOT_CREDIT_SKU = "SKU does not mint credits";
     string private constant _ERR_NOT_LICENSE_SKU = "SKU does not create licenses";
+    string private constant _ERR_SKU_ID_ZERO = "SKU id zero is reserved";
     string private constant _ERR_NOT_RENEWAL_SKU = "SKU does not renew licenses";
     string private constant _ERR_LICENSE_NOT_CREATED = "License not created";
     string private constant _ERR_CREDIT_TOKEN_MISSING = "Credit token not created";
@@ -286,6 +287,10 @@ contract GNUSLicensingPurchase is GNUSERC1155MaxSupply, GeniusAccessControl, IGN
         {
             SKU storage sku = GNUSLicensingStorage.layout().skus[skuId];
             require(sku.active && sku.createsLicense, _ERR_NOT_LICENSE_SKU);
+            // licenseSku[licenseId] is written as skuId and 0 doubles as the not-a-license
+            // sentinel read by renewLicense/purchaseCredits — a license created under SKU
+            // id 0 would be permanently non-renewable and its credits unpurchasable.
+            require(skuId != 0, _ERR_SKU_ID_ZERO);
             duration = sku.duration;
         }
 
