@@ -59,7 +59,6 @@ contract GNUSLicensingPurchase is GNUSERC1155MaxSupply, GeniusAccessControl, IGN
     string private constant _ERR_NOT_CREDIT_SKU = "SKU does not mint credits";
     string private constant _ERR_NOT_LICENSE_SKU = "SKU does not create licenses";
     string private constant _ERR_NOT_RENEWAL_SKU = "SKU does not renew licenses";
-    string private constant _ERR_SKU_NOT_GOVERNING = "SKU does not govern this license";
     string private constant _ERR_LICENSE_NOT_CREATED = "License not created";
     string private constant _ERR_CREDIT_TOKEN_MISSING = "Credit token not created";
     string private constant _ERR_INSUFFICIENT_ALLOWANCE = "ERC20: insufficient allowance";
@@ -68,9 +67,11 @@ contract GNUSLicensingPurchase is GNUSERC1155MaxSupply, GeniusAccessControl, IGN
     string private constant _ERR_INVALID_SCOPE = "Invalid networkScope";
     string private constant _ERR_CREDENTIAL_FAILED = "Credential verification failed";
 
-    /// @dev License NFTs are namespace-only records (D-20) — one minion of headroom for a
-    ///      symbolic unit; nothing in this facet mints license units.
-    uint256 private constant _LICENSE_MAX_SUPPLY = 1 * GNUS_DECIMALS;
+    /// @dev License NFTs are namespace-only records (D-20) — nothing in this facet mints
+    ///      license units, but hybrid-scope children (D-05) redeem INTO the license token via
+    ///      REDEEM_TO_PARENT, and that parent-mint leg still runs the hook's hard max-supply
+    ///      check (WR-04: only the window/cap are carved out). Keep redemption headroom.
+    uint256 private constant _LICENSE_MAX_SUPPLY = 1_000_000 * GNUS_DECIMALS;
     /// @dev Company credit tokens are the FIRST child created under the license NFT (D-02
     ///      hierarchy: GNUS root → license → company credits).
     uint256 private constant _FIRST_CHILD_INDEX = 0;
@@ -265,19 +266,18 @@ contract GNUSLicensingPurchase is GNUSERC1155MaxSupply, GeniusAccessControl, IGN
     }
 
     /// @notice Permissionless license renewal (D-27): burn payment, extend PerTokenId validUntil (LIC-05).
-    /// @dev Requires an ACTIVE renewsLicense SKU that GOVERNS the license (licenseSku match —
-    ///      T-14-03-02: renewal cannot be driven by an arbitrary foreign SKU). The extension is
-    ///      internal against storage: `max(current, block.timestamp) + sku.duration` — the
-    ///      role-gated setValidUntil external setter is NOT widened (analog's internal-only
-    ///      discipline). LicenseActivated is re-emitted with the extended expiry (LIC-05) and
-    ///      the stored companyAdmin/privateNetworkId (D-14/D-25).
-    /// @param skuId Renewal SKU id (active, renewsLicense, governs licenseId).
+    /// @dev Requires an ACTIVE renewsLicense SKU (any such SKU may renew any license — the
+    ///      operator-controlled SKU payload decides price and duration; T-14-03-02: the
+    ///      extension surface is exactly `max(current, block.timestamp) + sku.duration`, never
+    ///      caller-supplied). The extension is internal against storage — the role-gated
+    ///      setValidUntil external setter is NOT widened (analog's internal-only discipline).
+    ///      LicenseActivated is re-emitted with the extended expiry (LIC-05) and the stored
+    ///      companyAdmin/privateNetworkId (D-14/D-25).
+    /// @param skuId Renewal SKU id (active, renewsLicense).
     /// @param licenseId License token id.
     function renewLicense(uint256 skuId, uint256 licenseId) external {
-        GNUSLicensingStorage.Layout storage ls = GNUSLicensingStorage.layout();
-        SKU storage sku = ls.skus[skuId];
+        SKU storage sku = GNUSLicensingStorage.layout().skus[skuId];
         require(sku.active && sku.renewsLicense, _ERR_NOT_RENEWAL_SKU);
-        require(ls.licenseSku[licenseId] == skuId, _ERR_SKU_NOT_GOVERNING);
 
         NFT storage nft = GNUSNFTFactoryStorage.layout().NFTs[licenseId];
         require(nft.nftCreated, _ERR_LICENSE_NOT_CREATED);
