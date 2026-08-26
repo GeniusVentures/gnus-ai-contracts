@@ -35,6 +35,12 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
     /// @dev Fee denominator (thousandths). Bridge fee math: `amount * (1000 - fee) / 1000`.
     /// Cap is GNUSControl.MAX_FEE (200 = 20%).
     uint256 private constant FEE_DENOMINATOR = 1000;
+    /// @dev Role identifier for creators — identical value to GNUSNFTFactory.CREATOR_ROLE
+    ///      (keccak256("CREATOR_ROLE")). Re-declared locally (GNUSLifecycle.sol:36 precedent)
+    ///      to avoid a circular import.
+    bytes32 private constant _CREATOR_ROLE = keccak256("CREATOR_ROLE");
+    /// @dev Phase 14 D-23 revert reason for bridging an expired entitlement.
+    string private constant LICENSE_EXPIRED_ERROR = "License expired";
 
     /**
      * @notice Emitted when a token holder initiates a bridge to another chain.
@@ -288,7 +294,9 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
      *        ALLOWLISTED        → registry configured + isAllowed(SENDER).
      *        LOCKED_AFTER_START → return only pre-start (validFrom == 0 or now < validFrom);
      *                             revert at/after start (mirrors the transfer predicate).
-     *        SOULBOUND / ISSUER_ONLY / CONTROLLED_RESALE → revert (blocked in v1, D7).
+     *        SOULBOUND → Phase 14 D-24: allowed ONLY for CREATOR_ROLE/ADMIN callers while
+     *                     the entitlement is unexpired (D-23); other callers revert.
+     *        ISSUER_ONLY / CONTROLLED_RESALE → revert (blocked in v1, D7).
      *
      *      Q4 v1 SIMPLIFICATION: the ALLOWLISTED bridge check targets the SENDER (the bridge
      *      initiator on this source chain), NOT the cross-chain destination — a cross-chain
@@ -327,7 +335,32 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
             }
             revert("Policy-bound token cannot bridge in v1");
         }
-        // SOULBOUND, ISSUER_ONLY, CONTROLLED_RESALE: non-bridgeable in v1 (D7).
+        // Phase 14 D-24: SOULBOUND credits may bridge out ONLY under operator mediation —
+        // the caller must hold CREATOR_ROLE or DEFAULT_ADMIN_ROLE (mint→bridge transport to
+        // SG timed UTXOs, D-19/D-21/D-22). Non-privileged soulbound holders remain locked out.
+        if (nft.transferPolicy == uint8(TransferPolicy.SOULBOUND)) {
+            if (hasRole(DEFAULT_ADMIN_ROLE, sender) || hasRole(_CREATOR_ROLE, sender)) {
+                // Phase 14 D-23: expired value must not reach SuperGenius. Gate BEFORE the
+                // limiter charge + burn (call-site ordering unchanged — zero limiter
+                // consumption on revert). Mirrors the "Sale ended" analogue
+                // (GNUSLifecycleMint.sol) for both expiration modes; None passes.
+                if (nft.expirationMode == uint8(ExpirationMode.PerTokenId)) {
+                    require(
+                        nft.validUntil == 0 || block.timestamp < nft.validUntil,
+                        LICENSE_EXPIRED_ERROR
+                    );
+                } else if (nft.expirationMode == uint8(ExpirationMode.PerHolder)) {
+                    uint64 holderExpiry = GNUSLifecycleStorage.layout().holderExpiresAt[id][sender];
+                    require(
+                        holderExpiry == 0 || block.timestamp < holderExpiry,
+                        LICENSE_EXPIRED_ERROR
+                    );
+                }
+                return;
+            }
+            revert("Policy-bound token cannot bridge in v1");
+        }
+        // ISSUER_ONLY, CONTROLLED_RESALE: non-bridgeable in v1 (D7).
         revert("Policy-bound token cannot bridge in v1");
     }
 
