@@ -84,6 +84,7 @@ contract GNUSLicensingPurchase is GNUSERC1155MaxSupply, GeniusAccessControl, IGN
     string private constant _ERR_PUBLIC_CREDIT_NETWORK_MISMATCH = "Public credit network mismatch";
     string private constant _ERR_PUBLIC_CREDIT_TOKEN_MISSING = "Public credit token not created";
     string private constant _ERR_NOT_LICENSE_TOKEN = "Not a license token";
+    string private constant _ERR_LICENSE_EXPIRED = "License expired";
 
     /// @dev License NFTs are namespace-only records (D-20) — nothing in this facet mints
     ///      license units, but hybrid-scope children (D-05) redeem INTO the license token via
@@ -164,6 +165,9 @@ contract GNUSLicensingPurchase is GNUSERC1155MaxSupply, GeniusAccessControl, IGN
         uint256 creditTokenId = (licenseId << 128) | _FIRST_CHILD_INDEX;
         NFT storage licenseNft = GNUSNFTFactoryStorage.layout().NFTs[licenseId];
         require(licenseNft.nftCreated, _ERR_LICENSE_NOT_CREATED);
+        // WR-01: no new private-network entitlements under an EXPIRED license (D-23
+        // symmetric EVM-side gating). validUntil == 0 = non-expiring.
+        require(licenseNft.validUntil == 0 || block.timestamp < licenseNft.validUntil, _ERR_LICENSE_EXPIRED);
         NFT storage creditNft = GNUSNFTFactoryStorage.layout().NFTs[creditTokenId];
         require(creditNft.nftCreated, _ERR_CREDIT_TOKEN_MISSING);
 
