@@ -83,6 +83,7 @@ contract GNUSLicensingPurchase is GNUSERC1155MaxSupply, GeniusAccessControl, IGN
     string private constant _ERR_CREDIT_NETWORK_MISMATCH = "Credit network mismatch";
     string private constant _ERR_PUBLIC_CREDIT_NETWORK_MISMATCH = "Public credit network mismatch";
     string private constant _ERR_PUBLIC_CREDIT_TOKEN_MISSING = "Public credit token not created";
+    string private constant _ERR_NOT_LICENSE_TOKEN = "Not a license token";
 
     /// @dev License NFTs are namespace-only records (D-20) — nothing in this facet mints
     ///      license units, but hybrid-scope children (D-05) redeem INTO the license token via
@@ -346,6 +347,12 @@ contract GNUSLicensingPurchase is GNUSERC1155MaxSupply, GeniusAccessControl, IGN
     function renewLicense(uint256 skuId, uint256 licenseId) external {
         SKU storage sku = GNUSLicensingStorage.layout().skus[skuId];
         require(sku.active && sku.renewsLicense, _ERR_NOT_RENEWAL_SKU);
+
+        // CR-01: renewal is bound to LICENSE tokens created through createLicense — the
+        // licenseSku registry (written in _finalizeLicense) is the license-identity check.
+        // Without it, any caller could extend validUntil on ANY created NFT and emit a
+        // forged-semantics LicenseActivated (bypassing the role-gated setValidUntil).
+        require(GNUSLicensingStorage.layout().licenseSku[licenseId] != 0, _ERR_NOT_LICENSE_TOKEN);
 
         NFT storage nft = GNUSNFTFactoryStorage.layout().NFTs[licenseId];
         require(nft.nftCreated, _ERR_LICENSE_NOT_CREATED);
