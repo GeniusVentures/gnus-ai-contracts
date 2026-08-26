@@ -47,6 +47,19 @@ import "contracts-starter/contracts/libraries/LibDiamond.sol";
 ///          surface is limited to credit top-up + renewal (D-27).
 ///        - CEI: allowance/state effects precede the mint; the per-holder clock is cleared
 ///          before any settle dispatch (Pitfall P5).
+///
+///      Phase 14 gap-closure (plan 14-05) network-key rules:
+///        - createLicense rejects privateNetworkId == 0 and network ids already claimed
+///          (networkIdToLicense uniqueness registry, T-14-05-01) — the network id doubles as
+///          the network's Ed25519 public key (raw uint256), so a license identity can never
+///          be spoofed or double-claimed.
+///        - purchaseCredits lazily propagates the parent license's privateNetworkId onto a
+///          zero-default credit token and reverts on mismatch (T-14-05-02); public credits
+///          (license child index 1) must stay network-zero and revert otherwise (T-14-05-03).
+///        - Split-mint SKUs (creditAmount = private leg + publicCreditAmount = public leg)
+///          mint BOTH legs in one transaction behind ONE price burn (D-10 exact delta);
+///          per-leg amounts are FIXED IN THE SKU — buyer-chosen splits are DEFERRED
+///          (research question #5 resolution; no purchase-path parameter surface, D-27).
 /// @custom:security-contact support@gnus.ai
 contract GNUSLicensingPurchase is GNUSERC1155MaxSupply, GeniusAccessControl, IGNUSLicensingEvents {
     /// @dev Role identifier for creators — identical value to GNUSNFTFactory.CREATOR_ROLE
@@ -66,6 +79,11 @@ contract GNUSLicensingPurchase is GNUSERC1155MaxSupply, GeniusAccessControl, IGN
     string private constant _ERR_TOKEN_COLLISION = "Token ID collision";
     string private constant _ERR_INVALID_SCOPE = "Invalid networkScope";
     string private constant _ERR_CREDENTIAL_FAILED = "Credential verification failed";
+    string private constant _ERR_NETWORK_ID_ZERO = "Private network id required";
+    string private constant _ERR_NETWORK_ALREADY_LICENSED = "Network id already licensed";
+    string private constant _ERR_CREDIT_NETWORK_MISMATCH = "Credit network mismatch";
+    string private constant _ERR_PUBLIC_CREDIT_NETWORK_MISMATCH = "Public credit network mismatch";
+    string private constant _ERR_PUBLIC_CREDIT_TOKEN_MISSING = "Public credit token not created";
 
     /// @dev License NFTs are namespace-only records (D-20) — nothing in this facet mints
     ///      license units, but hybrid-scope children (D-05) redeem INTO the license token via
@@ -75,6 +93,9 @@ contract GNUSLicensingPurchase is GNUSERC1155MaxSupply, GeniusAccessControl, IGN
     /// @dev Company credit tokens are the FIRST child created under the license NFT (D-02
     ///      hierarchy: GNUS root → license → company credits).
     uint256 private constant _FIRST_CHILD_INDEX = 0;
+    /// @dev Public-network credits are the license's SECOND child (Phase 14 gap-closure
+    ///      split-mint public leg; D-02 hierarchy — still a company child of the license).
+    uint256 private constant _PUBLIC_CHILD_INDEX = 1;
 
     // ---- Topic-equal event re-declarations (single ABI surface across facets) ----
     // NOTE (facet split): these mirror the declarations on GNUSLifecycle / GNUSLifecycleMint
@@ -146,6 +167,16 @@ contract GNUSLicensingPurchase is GNUSERC1155MaxSupply, GeniusAccessControl, IGN
         NFT storage creditNft = GNUSNFTFactoryStorage.layout().NFTs[creditTokenId];
         require(creditNft.nftCreated, _ERR_CREDIT_TOKEN_MISSING);
 
+        // Phase 14 gap-closure network-key binding (T-14-05-02): lazily propagate the parent
+        // license's privateNetworkId onto a zero-default credit token; a nonzero mismatch
+        // reverts. The propagated value is read ONLY from CREATOR-gated license storage —
+        // buyer input never reaches this write (permissionless-safe per D-27).
+        if (creditNft.privateNetworkId == 0) {
+            creditNft.privateNetworkId = licenseNft.privateNetworkId;
+        } else {
+            require(creditNft.privateNetworkId == licenseNft.privateNetworkId, _ERR_CREDIT_NETWORK_MISMATCH);
+        }
+
         // Credential gate (mirror of _checkMintPolicy's verifier leg — the window/cap gates
         // fire on _mint via the shared hook).
         if (creditNft.credentialVerifier != address(0)) {
@@ -155,14 +186,39 @@ contract GNUSLicensingPurchase is GNUSERC1155MaxSupply, GeniusAccessControl, IGN
             );
         }
 
-        // Payment leg (D-10): burn priceInMinions of id-0 GNUS from the buyer.
+        // Payment leg (D-10): burn priceInMinions of id-0 GNUS from the buyer — ONE burn for
+        // BOTH legs of a split-mint SKU (totalSupply delta == priceInMinions, D-10).
         _burnPayment(_msgSender(), sku.priceInMinions);
 
-        // D3 renewal clock (PRE-mint balance — must run before _mint, Pitfall P5).
-        _applyCreditRenewal(deviceWallet, creditTokenId, creditNft);
+        // Private leg: zero amount skips the renewal clock AND the mint (a zero-mint would
+        // start a renewal clock on a token the buyer received nothing of).
+        if (sku.creditAmount > 0) {
+            // D3 renewal clock (PRE-mint balance — must run before _mint, Pitfall P5).
+            _applyCreditRenewal(deviceWallet, creditTokenId, creditNft);
+            // Mint through the shared hook: max-supply + validFrom + "Sale ended" + per-wallet cap.
+            _mint(deviceWallet, creditTokenId, sku.creditAmount, "");
+        }
 
-        // Mint through the shared hook: max-supply + validFrom + "Sale ended" + per-wallet cap.
-        _mint(deviceWallet, creditTokenId, sku.creditAmount, "");
+        // Public leg (Phase 14 gap-closure split mint, fixed-in-SKU amounts): the license's
+        // SECOND child. Buyer-chosen splits at purchase are DEFERRED (research question #5
+        // resolved — the operator fixes per-leg amounts in the SKU; no new purchase-path
+        // parameter surface, D-27). The public token must exist and must NEVER carry a
+        // network key (T-14-05-03). Same verifier/renewal/mint discipline as the private leg;
+        // the shared hook applies max-supply/window/cap gates to BOTH legs.
+        if (sku.publicCreditAmount > 0) {
+            uint256 publicTokenId = (licenseId << 128) | _PUBLIC_CHILD_INDEX;
+            NFT storage publicNft = GNUSNFTFactoryStorage.layout().NFTs[publicTokenId];
+            require(publicNft.nftCreated, _ERR_PUBLIC_CREDIT_TOKEN_MISSING);
+            require(publicNft.privateNetworkId == 0, _ERR_PUBLIC_CREDIT_NETWORK_MISMATCH);
+            if (publicNft.credentialVerifier != address(0)) {
+                require(
+                    ICredentialVerifier(publicNft.credentialVerifier).verify(deviceWallet, publicTokenId, sku.publicCreditAmount, ""),
+                    _ERR_CREDENTIAL_FAILED
+                );
+            }
+            _applyCreditRenewal(deviceWallet, publicTokenId, publicNft);
+            _mint(deviceWallet, publicTokenId, sku.publicCreditAmount, "");
+        }
     }
 
     /// @notice License creation calldata (bundled — the flat 8-arg signature overflows the
@@ -198,6 +254,16 @@ contract GNUSLicensingPurchase is GNUSERC1155MaxSupply, GeniusAccessControl, IGN
         address sender = _msgSender();
         require(hasRole(DEFAULT_ADMIN_ROLE, sender) || hasRole(_CREATOR_ROLE, sender), _ERR_ONLY_CREATORS_OR_ADMINS);
         require(params.networkScope <= uint8(NetworkScope.Hybrid), _ERR_INVALID_SCOPE);
+        // Phase 14 gap-closure (T-14-05-01): a real Ed25519 pubkey is never zero, and a
+        // license IS a private-network identity — reject zero, and reject a network id already
+        // claimed by another license (checked pre-creation; the registry WRITE happens in
+        // _finalizeLicense where licenseId exists — license ids are always nonzero, children
+        // of the nonzero-index product root, so 0 stays a safe unclaimed sentinel).
+        require(params.privateNetworkId != 0, _ERR_NETWORK_ID_ZERO);
+        require(
+            GNUSLicensingStorage.layout().networkIdToLicense[params.privateNetworkId] == 0,
+            _ERR_NETWORK_ALREADY_LICENSED
+        );
 
         uint64 duration;
         {
@@ -260,6 +326,9 @@ contract GNUSLicensingPurchase is GNUSERC1155MaxSupply, GeniusAccessControl, IGN
         uint64 expiresAt = newNft.validUntil;
 
         GNUSLicensingStorage.layout().licenseSku[licenseId] = skuId;
+        // Phase 14 gap-closure uniqueness registry write (claim checked pre-creation in
+        // createLicense; written here where licenseId exists).
+        GNUSLicensingStorage.layout().networkIdToLicense[privateNetworkId] = licenseId;
 
         // D-14 field order — the SG cross-system contract; do NOT reorder.
         emit LicenseActivated(companyAdmin, licenseId, privateNetworkId, expiresAt);
