@@ -191,6 +191,10 @@ contract GNUSLicensingPurchase is GNUSERC1155MaxSupply, GeniusAccessControl, IGN
         // buyer input never reaches this write (permissionless-safe per D-27).
         if (creditNft.privateNetworkId == 0) {
             creditNft.privateNetworkId = licenseNft.privateNetworkId;
+            // IN-02: the license's networkScope rides along (same append-safe
+            // lazy-propagation pattern) so token-level scope readers never see "public"
+            // on a private-network-bound credit.
+            creditNft.networkScope = licenseNft.networkScope;
         } else {
             require(creditNft.privateNetworkId == licenseNft.privateNetworkId, _ERR_CREDIT_NETWORK_MISMATCH);
         }
