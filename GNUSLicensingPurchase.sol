@@ -169,7 +169,21 @@ contract GNUSLicensingPurchase is GNUSERC1155MaxSupply, GeniusAccessControl, IGN
         // symmetric EVM-side gating). validUntil == 0 = non-expiring.
         require(licenseNft.validUntil == 0 || block.timestamp < licenseNft.validUntil, _ERR_LICENSE_EXPIRED);
         NFT storage creditNft = GNUSNFTFactoryStorage.layout().NFTs[creditTokenId];
-        require(creditNft.nftCreated, _ERR_CREDIT_TOKEN_MISSING);
+
+        // WR-03: the private-leg existence check + credential gate run ONLY when the SKU
+        // actually mints a private leg (creditAmount > 0) — a public-only SKU must not
+        // require the private first-child token nor consult its verifier with amount = 0.
+        if (sku.creditAmount > 0) {
+            require(creditNft.nftCreated, _ERR_CREDIT_TOKEN_MISSING);
+            // Credential gate (mirror of _checkMintPolicy's verifier leg — the window/cap
+            // gates fire on _mint via the shared hook).
+            if (creditNft.credentialVerifier != address(0)) {
+                require(
+                    ICredentialVerifier(creditNft.credentialVerifier).verify(deviceWallet, creditTokenId, sku.creditAmount, ""),
+                    _ERR_CREDENTIAL_FAILED
+                );
+            }
+        }
 
         // Phase 14 gap-closure network-key binding (T-14-05-02): lazily propagate the parent
         // license's privateNetworkId onto a zero-default credit token; a nonzero mismatch
@@ -179,15 +193,6 @@ contract GNUSLicensingPurchase is GNUSERC1155MaxSupply, GeniusAccessControl, IGN
             creditNft.privateNetworkId = licenseNft.privateNetworkId;
         } else {
             require(creditNft.privateNetworkId == licenseNft.privateNetworkId, _ERR_CREDIT_NETWORK_MISMATCH);
-        }
-
-        // Credential gate (mirror of _checkMintPolicy's verifier leg — the window/cap gates
-        // fire on _mint via the shared hook).
-        if (creditNft.credentialVerifier != address(0)) {
-            require(
-                ICredentialVerifier(creditNft.credentialVerifier).verify(deviceWallet, creditTokenId, sku.creditAmount, ""),
-                _ERR_CREDENTIAL_FAILED
-            );
         }
 
         // Payment leg (D-10): burn priceInMinions of id-0 GNUS from the buyer — ONE burn for
