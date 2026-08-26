@@ -403,7 +403,12 @@ contract GNUSLifecycle is GNUSERC1155MaxSupply, GeniusAccessControl {
             transferPolicy: cfg.transferPolicy,
             expirationDisposition: cfg.expirationDisposition,
             expirationRecipient: cfg.expirationRecipient,
-            credentialVerifier: cfg.credentialVerifier
+            credentialVerifier: cfg.credentialVerifier,
+            // Phase 14 licensing defaults (D-03/D-25) - zero-default preserves legacy behavior
+            companyAdmin: address(0),      // unset; operator sets at license creation
+            privateNetworkId: 0,           // no private network
+            networkScope: 0,               // NetworkScope.PublicOnly
+            publicSettlementEnabled: false // informational flag off
         });
 
         emit LifecycleConfigured(newTokenID, cfg, sender);

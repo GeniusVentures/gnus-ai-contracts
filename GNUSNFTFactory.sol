@@ -169,27 +169,21 @@ contract GNUSNFTFactory is Initializable, GNUSERC1155MaxSupply, GeniusAccessCont
             }
             uint256 newTokenID = (parentID << 128) | nft.childCurIndex++;
             require(!GNUSNFTFactoryStorage.layout().NFTs[newTokenID].nftCreated, "Token ID collision"); // D7
-            GNUSNFTFactoryStorage.layout().NFTs[newTokenID] = NFT({
-                name: names[i],
-                symbol: symbols[i],
-                exchangeRate: exchRates[i],
-                maxSupply: max_supplies[i],
-                uri: newuris[i],
-                creator: sender,
-                childCurIndex: 0,
-                nftCreated: true,
-                parentId: parentID,           // D7 - recorded, not derived
-                nonConvertible: false,        // D5 - default convertible; Phase 13 sets true for burn-only tokens
-                // Phase 13 lifecycle defaults (D1) - zero-default preserves legacy behavior
-                validFrom: 0,                 // active immediately
-                validUntil: 0,                // no per-ID expiry
-                defaultDuration: 0,           // PerHolder unset
-                expirationMode: 0,            // ExpirationMode.None
-                transferPolicy: 0,            // TransferPolicy.UNRESTRICTED
-                expirationDisposition: 0,     // ExpirationDisposition.NONE
-                expirationRecipient: address(0),
-                credentialVerifier: address(0)
-            });
+            // EIP-170 relief (Phase 14, 13-04 Option A precedent): write only the non-zero
+            // fields. The collision guard above plus the monotonic childCurIndex guarantee a
+            // virgin (all-zero) storage record, so zero-default fields — childCurIndex,
+            // nonConvertible, the Phase 13 lifecycle defaults (D1), and the Phase 14
+            // licensing defaults (D-03/D-25: companyAdmin, privateNetworkId, networkScope,
+            // publicSettlementEnabled) — decode correctly without explicit zero stores.
+            NFT storage newNft = GNUSNFTFactoryStorage.layout().NFTs[newTokenID];
+            newNft.name = names[i];
+            newNft.symbol = symbols[i];
+            newNft.exchangeRate = exchRates[i];
+            newNft.maxSupply = max_supplies[i];
+            newNft.uri = newuris[i];
+            newNft.creator = sender;
+            newNft.nftCreated = true;
+            newNft.parentId = parentID;    // D7 - recorded, not derived
         }
         GNUSNFTFactoryStorage.layout().NFTs[parentID].childCurIndex = nft.childCurIndex;
     }

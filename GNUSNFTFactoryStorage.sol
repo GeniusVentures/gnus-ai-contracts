@@ -31,6 +31,14 @@ struct NFT {
     uint8   expirationDisposition; ///< D1 - ExpirationDisposition enum ordinal (slot +8 byte 27); 0 = NONE
     address expirationRecipient;   ///< D1 - destination for RETURN_TO_ADDRESS (slot +9 bytes 0-19); 0x0 = unset
     address credentialVerifier;    ///< D1 - ICredentialVerifier plug-in (slot +10 bytes 0-19); 0x0 = no credential required to mint
+    // Phase 14 appends below - do not reorder, do not insert above this line
+    // Slot annotations verified by storage probe in GNUSLifecycleUpgrade.test.ts (LIC-02, Phase 14):
+    // companyAdmin occupies full slot +11; privateNetworkId (uint256) occupies full slot +12
+    // (uint256 cannot share); networkScope (1B) + publicSettlementEnabled (1B) pack into slot +13.
+    address companyAdmin;          ///< D-25/PD-3 - operator-set company admin config field (slot +11 bytes 0-19); 0x0 = unset
+    uint256 privateNetworkId;      ///< D-03/PD-3 - SuperGenius private network/tenant id (slot +12, full slot); 0 = none
+    uint8   networkScope;          ///< D-03/PD-3 - NetworkScope enum ordinal (slot +13 byte 0); 0 = PublicOnly (zero-default)
+    bool    publicSettlementEnabled; ///< D-03/PD-8 - informational flag consumed by the SG side (slot +13 byte 1); false = off (zero-default)
 }
 
 /// @custom:security-contact support@gnus.ai
