@@ -165,6 +165,10 @@ contract GNUSLicensingPurchase is GNUSERC1155MaxSupply, GeniusAccessControl, IGN
         uint256 creditTokenId = (licenseId << 128) | _FIRST_CHILD_INDEX;
         NFT storage licenseNft = GNUSNFTFactoryStorage.layout().NFTs[licenseId];
         require(licenseNft.nftCreated, _ERR_LICENSE_NOT_CREATED);
+        // Codex PR-78 P1 / CR-01 symmetric: only a license minted by createLicense may
+        // mint credits — otherwise any created NFT with a child at index 0 qualifies and
+        // a buyer could top up unrelated (potentially redeemable) child tokens.
+        require(ls.licenseSku[licenseId] != 0, _ERR_NOT_LICENSE_TOKEN);
         // WR-01: no new private-network entitlements under an EXPIRED license (D-23
         // symmetric EVM-side gating). validUntil == 0 = non-expiring.
         require(licenseNft.validUntil == 0 || block.timestamp < licenseNft.validUntil, _ERR_LICENSE_EXPIRED);
