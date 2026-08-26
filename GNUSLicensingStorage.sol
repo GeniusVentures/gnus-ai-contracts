@@ -18,6 +18,9 @@ library GNUSLicensingStorage {
         mapping(uint256 => SKU) skus;
         // license token id → SKU id (renewal SKUs look up their governing license)
         mapping(uint256 => uint256) licenseSku;
+        // privateNetworkId → license token id; 0 = unclaimed (Phase 14 gap-closure uniqueness
+        // registry; append-only — Phase 15+ appends after)
+        mapping(uint256 => uint256) networkIdToLicense;
     }
 
     /// @notice Storage position for the GNUS Licensing storage.

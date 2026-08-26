@@ -31,6 +31,7 @@ contract GNUSLicensing is GNUSERC1155MaxSupply, GeniusAccessControl, IGNUSLicens
     string private constant _ERR_PRICE_ZERO = "Price must be greater than zero";
     string private constant _ERR_DURATION_ZERO = "Duration must be greater than zero";
     string private constant _ERR_SKU_MODE_CONFLICT = "SKU cannot both create and renew a license";
+    string private constant _ERR_SKU_NO_CREDITS = "SKU mints no credits";
 
     /// @notice Checks if the contract supports a specific interface.
     /// @dev Overrides the diamond-aware supportsInterface (matches GNUSLifecycle.sol:45-48) —
@@ -77,6 +78,11 @@ contract GNUSLicensing is GNUSERC1155MaxSupply, GeniusAccessControl, IGNUSLicens
         require(sku.priceInMinions > 0, _ERR_PRICE_ZERO);
         require(sku.duration > 0, _ERR_DURATION_ZERO);
         require(!(sku.createsLicense && sku.renewsLicense), _ERR_SKU_MODE_CONFLICT);
+        // Phase 14 gap-closure: a credit SKU must mint at least one leg (private or public).
+        // License/renewal SKUs are unaffected (their credit fields are ignored, as today).
+        if (!sku.createsLicense && !sku.renewsLicense) {
+            require(sku.creditAmount + sku.publicCreditAmount > 0, _ERR_SKU_NO_CREDITS);
+        }
 
         GNUSLicensingStorage.layout().skus[skuId] = sku;
         emit SKUConfigured(skuId, sku, msg.sender);

@@ -16,11 +16,13 @@ enum NetworkScope {
 ///      expiration disposition must be balance-removing (BURN / RETURN_TO_ADDRESS / REDEEM_TO_PARENT,
 ///      never NONE / KEEP_INERT). License SKUs target PerTokenId validUntil licenses (D-12).
 /// @param priceInMinions Purchase price in minions of GNUS; must be > 0.
-/// @param creditAmount Units of credit minted per purchase (0 for license-only SKUs).
+/// @param creditAmount Units of PRIVATE-network credit minted per purchase (the private leg; 0 for license-only SKUs).
 /// @param duration Entitlement duration in seconds; must be > 0.
 /// @param createsLicense True when this SKU creates a new License NFT (mutually exclusive with renewsLicense).
 /// @param renewsLicense True when this SKU renews an existing license (mutually exclusive with createsLicense).
 /// @param active True when the SKU is purchasable; inactive SKUs remain stored and queryable.
+/// @param publicCreditAmount Units of PUBLIC-network credit minted per purchase (Phase 14 gap-closure;
+///        0 = private-only legacy semantics — append-only, zero-default decode-compatible).
 struct SKU {
     uint256 priceInMinions;
     uint256 creditAmount;
@@ -28,6 +30,7 @@ struct SKU {
     bool    createsLicense;
     bool    renewsLicense;
     bool    active;
+    uint256 publicCreditAmount;
 }
 
 /// @title IGNUSLicensingEvents
