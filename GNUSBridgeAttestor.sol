@@ -166,6 +166,9 @@ contract GNUSBridgeAttestor is GNUSERC1155MaxSupply, GeniusAccessControl, IGNUSB
     string private constant _ERR_BAD_SIGNATURE = "Bad signature";
     string private constant _ERR_NOT_ASCENDING = "Signers not strictly ascending";
     string private constant _ERR_NOT_ATTESTOR = "Not a registered attestor";
+    /// @dev IN-01 (15 review): storage epoch is uint256 while the digest and the root-transition
+    ///      / recovery events consume uint64 — refuse before the silent narrowing can alias epochs.
+    string private constant _ERR_EPOCH_OVERFLOW = "Attestor epoch overflow";
     /// @dev Fee denominator (thousandths) for the `_mintWithBridgeFee` inline replica —
     ///      identical value to GNUSBridge.FEE_DENOMINATOR (twin copies must stay in sync).
     uint256 private constant FEE_DENOMINATOR = 1000;
@@ -246,6 +249,8 @@ contract GNUSBridgeAttestor is GNUSERC1155MaxSupply, GeniusAccessControl, IGNUSB
         require(v.bridgeAttestorV2Initialized, _ERR_RECOVERY_NOT_INITIALIZED);
         bytes32 oldRoot = v.bridgeAttestorRoot;
         uint256 oldEpoch = v.bridgeAttestorEpoch;
+        // IN-01 (15 review): the epoch+1 must survive the uint64 event cast below.
+        require(oldEpoch < type(uint64).max, _ERR_EPOCH_OVERFLOW);
         v.bridgeAttestorRoot = newRoot;
         v.bridgeAttestorEpoch = oldEpoch + 1;
         emit BridgeAttestorEmergencyReset(uint64(oldEpoch), uint64(oldEpoch + 1), oldRoot, newRoot);
@@ -501,6 +506,10 @@ contract GNUSBridgeAttestor is GNUSERC1155MaxSupply, GeniusAccessControl, IGNUSB
         bytes32 currentRoot = v.bridgeAttestorRoot;
         uint256 currentEpoch = v.bridgeAttestorEpoch;
         require(currentRoot != bytes32(0), _ERR_ROOT_NOT_CONFIGURED);
+        // IN-01 (15 review): the epoch feeds the uint64 digest cast at (f) and the
+        // uint64 oldEpoch/newEpoch event topics at (h) — guard the narrowing once,
+        // before either consumer (also bounds the epoch+1 transition write).
+        require(currentEpoch < type(uint64).max, _ERR_EPOCH_OVERFLOW);
         if (currentEpoch == 0) {
             require(nextAttestorRoot != currentRoot, _ERR_GENESIS_MUST_ADVANCE);
         }
