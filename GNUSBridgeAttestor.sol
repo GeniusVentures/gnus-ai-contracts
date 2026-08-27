@@ -460,7 +460,15 @@ contract GNUSBridgeAttestor is GNUSERC1155MaxSupply, GeniusAccessControl, IGNUSB
     ///      certificate, not the caller (D-09). `GNUS_TOKEN_ID` is hardcoded (D-14).
     ///      No D-24 policy gate and no limiter charge on this path by design: bridge-in
     ///      mints GNUS_TOKEN_ID only (the Phase-13 policy predicate's carve-out) and never
-    ///      charged the withdrawal limiter (that is bridgeOut-only).
+    ///      charged the withdrawal limiter (that is bridgeOut-only). The mint leg
+    ///      `_mintWithBridgeFee` -> `_mint` -> `_beforeTokenTransfer` STILL runs
+    ///      `GNUSLifecyclePolicy.enforceMintGate`, which has NO GNUS_TOKEN_ID carve-out:
+    ///      the factory `maxSupply` bound for id 0, the `validFrom`/`validUntil` sale
+    ///      window, and the `perWalletMintCap[GNUS_TOKEN_ID]` check-AND-INCREMENT all
+    ///      apply — bridge-in mints CONSUME the recipient's `mintedPerWallet[0]` allowance,
+    ///      and configuring a per-wallet cap or sale window for id 0 would rate-limit or
+    ///      block this permissionless path (carried Phase 10 behavior; WR-02, 15 review —
+    ///      pinned by matrix row E7; an exemption would be a product decision).
     /// @param message Canonical source-event bridge message.
     /// @param nextAttestorRoot Root the certificate installs (nonzero; at epoch 0 it MUST
     ///        differ from the current root).
