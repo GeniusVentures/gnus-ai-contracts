@@ -178,7 +178,10 @@ contract GNUSBridge is Initializable, GNUSERC1155MaxSupply, GeniusAccessControl,
      *
      * Requirements:
      * - `to` cannot be the zero address.
-     * - If `to` refers to a smart contract, it must implement {IERC1155Receiver-onERC1155Received} and return the acceptance magic value.
+     * - `to` MAY be a smart contract: this override performs NO ERC-1155 receiver-acceptance
+     *   check ({IERC1155Receiver-onERC1155Received} is never called), so contract recipients
+     *   (Safes, smart wallets, ERC-20 proxies) can receive bridged GNUS — intentional, and
+     *   mirrored by the GNUSBridgeAttestor._mint twin replica (Phase 15 Pitfall 1).
      */
     function _mint(
         address to,
